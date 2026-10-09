@@ -1,0 +1,87 @@
+name: Build & Release Meow
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a GitHub Release'
+        required: false
+        type: boolean
+        default: false
+      tag_name:
+        description: 'Tag name for the release (e.g. v1.0.2)'
+        required: false
+        type: string
+        default: 'v1.0.2'
+
+jobs:
+  build:
+    name: Build & Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Setup Keystore (if secrets provided)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding release keystore..."
+            echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+            cat <<EOF > keystore.properties
+          storeFile=release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+            echo "keystore.properties configured for release signing."
+          else
+            echo "No RELEASE_KEYSTORE_BASE64 secret found. Falling back to debug key signing."
+          fi
+
+      - name: Build Release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p output
+          cp app/build/outputs/apk/release/*.apk output/Meow.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Meow-APK
+          path: output/Meow.apk
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/Meow.apk
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.tag_name != '' && inputs.tag_name || 'v1.0.2') }}
+          name: Meow ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || (inputs.tag_name != '' && inputs.tag_name || 'v1.0.2') }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
