@@ -19,10 +19,15 @@ on:
         type: string
         default: 'v1.0.2'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Package
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
