@@ -52,14 +52,14 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding release keystore..."
-            echo "$KEYSTORE_BASE64" | base64 -d > release.jks
-            cat <<EOF > keystore.properties
-          storeFile=release.jks
+            echo "$KEYSTORE_BASE64" | base64 -d > REXX.JKS
+            cat <<EOF > key.properties
+          storeFile=REXX.JKS
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
-            echo "keystore.properties configured for release signing."
+            echo "key.properties configured for release signing."
           else
             echo "No RELEASE_KEYSTORE_BASE64 secret found. Falling back to debug key signing."
           fi

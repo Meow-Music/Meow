@@ -25,17 +25,23 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"${localProps.getProperty("lastfm.apiKey", "")}\"")
     }
 
-    // Releases are signed with the key in keystore.properties (gitignored, with the .jks beside it).
-    // Without it — or with -PdebugSign — they fall back to the debug key so anyone can build.
+    // Releases are signed with the key in key.properties/keystore.properties.
+    // Without it — or if the keystore file is missing, or with -PdebugSign — they fall back to the debug key so anyone can build.
     val keyProps = Properties().apply {
         val keyFile = rootProject.file("key.properties").takeIf { it.exists() }
             ?: rootProject.file("keystore.properties").takeIf { it.exists() }
         keyFile?.inputStream()?.use { load(it) }
     }
-    val useReleaseKey = keyProps.isNotEmpty() && !project.hasProperty("debugSign")
+    val storeFileName = keyProps.getProperty("storeFile")
+    val storeFileObj = if (!storeFileName.isNullOrBlank()) {
+        rootProject.file(storeFileName).takeIf { it.exists() }
+            ?: rootProject.file(storeFileName.lowercase()).takeIf { it.exists() }
+            ?: rootProject.file(storeFileName.uppercase()).takeIf { it.exists() }
+    } else null
+    val useReleaseKey = storeFileObj != null && storeFileObj.exists() && !project.hasProperty("debugSign")
     signingConfigs {
         if (useReleaseKey) create("release") {
-            storeFile = rootProject.file(keyProps.getProperty("storeFile"))
+            storeFile = storeFileObj
             storePassword = keyProps.getProperty("storePassword")
             keyAlias = keyProps.getProperty("keyAlias")
             keyPassword = keyProps.getProperty("keyPassword")
