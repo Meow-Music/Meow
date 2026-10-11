@@ -34,16 +34,17 @@ import androidx.compose.ui.unit.dp
 import com.meow.music.ui.components.ChoiceFlow
 import com.meow.music.ui.components.Eyebrow
 import com.meow.music.ui.components.Segmented
+import com.meow.music.ui.components.pane
 import com.meow.music.ui.theme.LocalUi
 
-/** A titled card of settings rows. */
+/** A titled card of settings rows (a pane of frosted glass on a frosted page). */
 @Composable
 fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {
     val ui = LocalUi.current
     Column {
         if (title.isNotBlank()) Eyebrow(title, Modifier.padding(start = 8.dp, bottom = 8.dp))
         Column(
-            Modifier.fillMaxWidth().clip(ui.card).background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f))
+            Modifier.fillMaxWidth().pane(ui.card, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f))
                 .padding(vertical = ui.gap(6.dp)),
             content = content,
         )
@@ -152,3 +153,4 @@ fun SliderSetting(
         Slider(v, { v = it }, enabled = enabled, valueRange = range, steps = steps, onValueChangeFinished = { onSave(v) })
     }
 }
+

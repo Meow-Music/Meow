@@ -50,3 +50,4 @@ class VideoSyncTest {
         assertNull(lag)
     }
 }
+

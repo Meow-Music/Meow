@@ -12,5 +12,6 @@ captures/
 *.keystore
 .claude/settings.local.json
 keystore.properties
-REXX.jks
 key.properties
+REXX.jks
+SECRETS.md

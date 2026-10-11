@@ -4,6 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import com.meow.music.ui.components.pane
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +35,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Login
@@ -72,6 +81,8 @@ import com.meow.music.ui.components.ItemCard
 import com.meow.music.ui.components.PagerChips
 import com.meow.music.ui.components.SortBar
 import com.meow.music.ui.components.SongRow
+import com.meow.music.ui.components.featureInk
+import com.meow.music.ui.components.featurePane
 import com.meow.music.ui.theme.LocalAppSettings
 import com.meow.music.ui.theme.LocalContainer
 import kotlinx.coroutines.launch
@@ -81,6 +92,8 @@ private enum class LibTab(val label: String) { PLAYLISTS("Playlists"), SONGS("So
 private enum class SongSort(val label: String) { RECENT("Recently liked"), TITLE("Title"), ARTIST("Artist"), ALBUM("Album") }
 private enum class AlbumSort(val label: String) { LIBRARY("Library order"), MOST("Most songs"), TITLE("Title"), ARTIST("Artist") }
 private enum class ArtistSort(val label: String) { LIBRARY("Library order"), MOST("Most songs"), NAME("Name") }
+/** Saved by name ([com.meow.music.data.LibraryRepository.playlistSort]); CUSTOM is the listener's own order. */
+private enum class PlaylistSort(val label: String) { CUSTOM("Your order"), LIBRARY("Recent activity"), TITLE("Title") }
 
 @Composable
 fun LibraryScreen(bottomPadding: Dp) {
@@ -94,7 +107,9 @@ fun LibraryScreen(bottomPadding: Dp) {
     val sync by c.library.syncState.collectAsState()
     val dls by c.downloads.downloads.collectAsState()
     val thumbs by c.library.artistThumbs.collectAsState()
+    val favorites by c.artistPrefs.favorites.collectAsState()
     val scope = rememberCoroutineScope()
+    var creating by remember { mutableStateOf(false) }
     val startPage = remember { LibTab.entries.indexOfFirst { it.name == settings.libraryStartTab }.coerceAtLeast(0) }
     val pager = rememberPagerState(initialPage = startPage) { LibTab.entries.size }
     val asList = settings.libraryView == com.meow.music.data.prefs.LibraryView.LIST
@@ -111,8 +126,10 @@ fun LibraryScreen(bottomPadding: Dp) {
     val albums = remember(remoteAlbums, mine) {
         (remoteAlbums + LibraryRepository.albumsFrom(mine)).distinctBy { it.id }
     }
-    val artists = remember(remoteArtists, mine, thumbs) {
-        (remoteArtists + LibraryRepository.artistsFrom(mine)).distinctBy { it.id }.map { a ->
+    // Starred artists lead, marked as favourites.
+    val artists = remember(remoteArtists, mine, thumbs, favorites) {
+        val starred = favorites.map { f -> ArtistItem(f.id, f.name, "★ Favourite", f.thumbnail) }
+        (starred + remoteArtists + LibraryRepository.artistsFrom(mine)).distinctBy { it.id }.map { a ->
             if (a.thumbnail == null && a is ArtistItem) a.copy(thumbnail = thumbs[a.id]) else a
         }
     }
@@ -140,12 +157,32 @@ fun LibraryScreen(bottomPadding: Dp) {
         }
     }
     val artistSongs = remember(mine) { mine.flatMap { s -> s.artists.mapNotNull { it.id } }.groupingBy { it }.eachCount() }
-    val sortedArtists = remember(artists, artistSort, artistSongs) {
+    val sortedArtists = remember(artists, artistSort, artistSongs, favorites) {
+        val fav = favorites.map { it.id }.toSet()
         when (artistSort) {
             ArtistSort.LIBRARY -> artists
-            ArtistSort.MOST -> artists.sortedByDescending { artistSongs[it.id] ?: 0 }
-            ArtistSort.NAME -> artists.sortedBy { it.title.lowercase().removePrefix("the ") }
+            ArtistSort.MOST -> artists.sortedWith(compareByDescending<com.meow.music.data.model.BrowseItem> { it.id in fav }.thenByDescending { artistSongs[it.id] ?: 0 })
+            ArtistSort.NAME -> artists.sortedWith(compareByDescending<com.meow.music.data.model.BrowseItem> { it.id in fav }.thenBy { it.title.lowercase().removePrefix("the ") })
         }
+    }
+    // Playlists: YouTube Music's order, by title, or the listener's own (arranged in Rearrange mode).
+    val playlistOrder by c.library.playlistOrder.collectAsState()
+    val playlistSortName by c.library.playlistSort.collectAsState()
+    val playlistSort = PlaylistSort.entries.firstOrNull { it.name == playlistSortName }
+        ?: if (playlistOrder.isEmpty()) PlaylistSort.LIBRARY else PlaylistSort.CUSTOM
+    val myPlaylists = remember(playlists) { playlists.filter { it.id != "LM" } }
+    val sortedPlaylists = remember(myPlaylists, playlistOrder, playlistSort) {
+        when (playlistSort) {
+            PlaylistSort.CUSTOM -> LibraryRepository.inOrder(myPlaylists, playlistOrder)
+            PlaylistSort.LIBRARY -> myPlaylists
+            PlaylistSort.TITLE -> myPlaylists.sortedBy { it.title.lowercase() }
+        }
+    }
+    var rearranging by rememberSaveable { mutableStateOf(false) }
+    // Moving one (or starting to) saves the whole order as shown, and switches to it.
+    fun saveOrder(list: List<com.meow.music.data.model.BrowseItem>) {
+        c.library.setPlaylistOrder(list.map { it.id })
+        c.library.setPlaylistSort(PlaylistSort.CUSTOM.name)
     }
     LaunchedEffect(pager.currentPage == LibTab.ARTISTS.ordinal, artists.size) {
         if (pager.currentPage == LibTab.ARTISTS.ordinal) c.library.loadArtistThumbs(artists.filter { it.thumbnail == null }.take(60).map { it.id })
@@ -189,7 +226,7 @@ fun LibraryScreen(bottomPadding: Dp) {
                             EmptyState(Icons.Rounded.LibraryMusic, "Sign in to sync your library", "Your playlists, albums, artists and likes from YouTube Music will appear here.")
                             Button(onClick = { nav.go(Routes.LOGIN) }) { Icon(Icons.Rounded.Login, null); Spacer(Modifier.width(8.dp)); Text("Sign in") }
                         } else {
-                            EmptyState(Icons.Rounded.LibraryMusic, "Nothing here yet", "Like or download songs and their  show up here.")
+                            EmptyState(Icons.Rounded.LibraryMusic, "Nothing here yet", "Like or download songs, or star artists, and they'll show up here.")
                         }
                     }
                 }
@@ -198,6 +235,8 @@ fun LibraryScreen(bottomPadding: Dp) {
                         item { ShortcutTile("Liked songs", "${liked.size} songs", Icons.Rounded.Favorite, asList, art = c.covers.custom("liked"), onLongClick = { menu(com.meow.music.ui.components.Playable.Liked) }) { nav.go(Routes.liked()) } }
                         item { ShortcutTile("Downloads", "${dls.values.count { it.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED }} songs", Icons.Rounded.DownloadDone, asList, onLongClick = { menu(com.meow.music.ui.components.Playable.Downloads) }) { nav.go(Routes.DOWNLOADS) } }
                         item { ShortcutTile("Replay", "Your listening recap", Icons.Rounded.History, asList) { nav.go(Routes.REPLAY) } }
+                        item { ShortcutTile("Listen together", "With friends on the same Wi-Fi", Icons.Rounded.Groups, asList) { nav.go(Routes.TOGETHER) } }
+                        if (settings.isLoggedIn) item { ShortcutTile("New playlist", "Make one on YouTube Music", Icons.Rounded.Add, asList) { creating = true } }
                         if (settings.isLoggedIn) item { ShortcutTile("Import playlists", "From Spotify, Apple Music…", Icons.AutoMirrored.Rounded.PlaylistAdd, asList) { nav.go(Routes.IMPORT) } }
                         if (!settings.isLoggedIn) item(span = { GridItemSpan(maxLineSpan) }) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -205,7 +244,28 @@ fun LibraryScreen(bottomPadding: Dp) {
                                 Button(onClick = { nav.go(Routes.LOGIN) }) { Icon(Icons.Rounded.Login, null); Spacer(Modifier.width(8.dp)); Text("Sign in") }
                             }
                         }
-                        items(playlists.filter { it.id != "LM" }, key = { "p" + it.id }) { p ->
+                        if (myPlaylists.size > 1) item(span = { GridItemSpan(maxLineSpan) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                                if (rearranging) Text(
+                                    "Hold and drag, or use the arrows", style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).padding(start = 8.dp),
+                                ) else SortBar("${myPlaylists.size} playlists", PlaylistSort.entries, playlistSort, { it.label }, Modifier.weight(1f)) {
+                                    c.library.setPlaylistSort(it.name)
+                                }
+                                com.meow.music.ui.components.MeowChip(
+                                    rearranging,
+                                    {
+                                        if (!rearranging) saveOrder(sortedPlaylists)
+                                        rearranging = !rearranging
+                                    },
+                                    if (rearranging) "Done" else "Rearrange",
+                                    icon = if (rearranging) Icons.Rounded.Check else Icons.Rounded.SwapVert,
+                                )
+                            }
+                        }
+                        if (rearranging) item(span = { GridItemSpan(maxLineSpan) }) {
+                            RearrangePlaylists(sortedPlaylists, ::saveOrder)
+                        } else items(sortedPlaylists, key = { "p" + it.id }) { p ->
                             LibraryItem(p, asList, onLongClick = { menuFor = p }) { nav.open(p, onSong) }
                         }
                     }
@@ -235,10 +295,28 @@ fun LibraryScreen(bottomPadding: Dp) {
         }
     }
 
+    if (creating) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        com.meow.music.ui.components.NewPlaylistDialog(onDismiss = { creating = false }) { name, privacy ->
+            creating = false
+            scope.launch {
+                val id = runCatching { c.ytm.createPlaylist(name, emptyList(), privacy = privacy) }.getOrNull()
+                if (id == null) android.widget.Toast.makeText(context, "Couldn't make the playlist", android.widget.Toast.LENGTH_SHORT).show()
+                else {
+                    c.library.refreshCollections()
+                    nav.go(Routes.playlist(id))
+                }
+            }
+        }
+    }
+
     menuFor?.let { p ->
         com.meow.music.ui.components.PlayActionsSheet(
             com.meow.music.ui.components.Playable.Of(p),
-            extra = listOf(com.meow.music.ui.components.SheetItem(Icons.Rounded.Delete, "Delete playlist") { deleting = p }),
+            extra = listOf(
+                com.meow.music.ui.components.SheetItem(Icons.Rounded.SwapVert, "Rearrange playlists") { saveOrder(sortedPlaylists); rearranging = true },
+                com.meow.music.ui.components.SheetItem(Icons.Rounded.Delete, "Delete playlist", danger = true) { deleting = p },
+            ),
         ) { menuFor = null }
     }
 
@@ -262,6 +340,41 @@ fun LibraryScreen(bottomPadding: Dp) {
         )
     }
 }
+/** The playlists as a list to put in order: hold and drag a row, or nudge it with its arrows. */
+@Composable
+private fun RearrangePlaylists(playlists: List<com.meow.music.data.model.BrowseItem>, onReorder: (List<com.meow.music.data.model.BrowseItem>) -> Unit) {
+    val c = LocalContainer.current
+    val ui = com.meow.music.ui.theme.LocalUi.current
+    val scheme = MaterialTheme.colorScheme
+    fun move(from: Int, to: Int) {
+        if (to !in playlists.indices) return
+        onReorder(playlists.toMutableList().apply { add(to, removeAt(from)) })
+    }
+    com.meow.music.ui.components.ReorderList(
+        playlists, { it.id }, onReorder,
+        Modifier.padding(horizontal = 8.dp).pane(ui.card).padding(vertical = 6.dp),
+    ) { p, i, held, drag ->
+        Row(
+            drag.fillMaxWidth().then(if (held) Modifier.background(scheme.surfaceContainerHighest) else Modifier)
+                .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            com.meow.music.ui.components.Artwork(
+                c.covers.art(p), Modifier.size(44.dp), ui.smallArt, size = 226,
+                placeholderIcon = Icons.AutoMirrored.Rounded.QueueMusic,
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                p.title, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            IconButton(onClick = { move(i, i - 1) }, enabled = i > 0) { Icon(Icons.Rounded.KeyboardArrowUp, "Move ${p.title} up") }
+            IconButton(onClick = { move(i, i + 1) }, enabled = i < playlists.lastIndex) { Icon(Icons.Rounded.KeyboardArrowDown, "Move ${p.title} down") }
+            Icon(Icons.Rounded.DragHandle, null, Modifier.padding(end = 8.dp).size(20.dp), tint = scheme.onSurfaceVariant.copy(alpha = 0.6f))
+        }
+    }
+}
+
 /** An album, artist or playlist as a card (grid view) or a row (list view). */
 @Composable
 private fun LibraryItem(item: com.meow.music.data.model.BrowseItem, asList: Boolean, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
@@ -310,17 +423,17 @@ private fun DownloadsSummary() {
     val dls by c.downloads.downloads.collectAsState()
     val done = dls.values.filter { it.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED }
     val active = dls.values.filter { it.state != androidx.media3.exoplayer.offline.Download.STATE_COMPLETED }
+    val ink = featureInk()
     Column(Modifier.padding(8.dp)) {
         Box(
-            Modifier.fillMaxWidth().clip(com.meow.music.ui.theme.LocalUi.current.card)
-                .background(Brush.linearGradient(listOf(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.tertiaryContainer)))
+            Modifier.fillMaxWidth().featurePane(com.meow.music.ui.theme.LocalUi.current.card)
                 .clickable { nav.go(Routes.DOWNLOADS) }.padding(20.dp),
         ) {
             Column {
-                Text("${done.size} songs offline", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("${done.size} songs offline", style = MaterialTheme.typography.titleLarge, color = ink)
                 Text(
                     "%.1f MB used".format(done.sumOf { it.bytes } / 1_048_576.0) + if (active.isNotEmpty()) " · ${active.size} in progress" else "",
-                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.bodyMedium, color = ink.copy(alpha = 0.8f),
                 )
                 Text("Open downloads →", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
             }
@@ -335,3 +448,5 @@ private fun DownloadsSummary() {
         }
     }
 }
+
+

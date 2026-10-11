@@ -33,3 +33,4 @@ fun rememberHaptics(): Haptics {
     val latest = androidx.compose.runtime.rememberUpdatedState(settings.haptics)
     return remember(view) { Haptics(view) { latest.value } }
 }
+

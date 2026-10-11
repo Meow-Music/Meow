@@ -135,10 +135,10 @@ class Backup(private val c: AppContainer) {
 
     companion object {
         private const val FORMAT = 1
-        private const val MANIFEST = "Meow-backup.json"
+        private const val MANIFEST = "meow-backup.json"
         private const val STAGING = "restore_pending"
         private const val REDOWNLOAD = "restore_downloads.json"
-        private const val DB = "Meow.db"
+        private const val DB = "meow.db"
         private const val EXO_DB = "exoplayer_internal.db"
         /** Folders under files/ that hold downloaded audio and the animated covers saved with it. */
         private val MEDIA = setOf("downloads", "canvas_saved")
@@ -173,3 +173,6 @@ class Backup(private val c: AppContainer) {
         }
     }
 }
+
+
+

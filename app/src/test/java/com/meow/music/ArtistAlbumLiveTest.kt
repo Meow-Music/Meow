@@ -51,7 +51,7 @@ class ArtistAlbumLiveTest {
             "taylor swift" to ("Taylor Swift" to ArtistItem::class),
             "blinding lights" to ("Blinding Lights" to com.meow.music.data.model.SongItem::class),
             "do i wanna know arctic monkeys" to ("Do I Wanna Know?" to com.meow.music.data.model.SongItem::class),
-            "after hours" to ("After Hours" to com.meow.music.data.model.BrowseItem::class),
+            "after hours" to ("After Hours" to AlbumItem::class),
             "1989" to ("1989" to AlbumItem::class),
             "kendrick" to ("Kendrick Lamar" to ArtistItem::class),
             "ok computer" to ("OK Computer" to AlbumItem::class),
@@ -65,6 +65,21 @@ class ArtistAlbumLiveTest {
     }
 
     @Test
+    fun artistAndAlbumExtras() = runBlocking {
+        val a = ytm.artist(ytm.search("Taylor Swift", SearchFilter.ARTISTS).items.filterIsInstance<ArtistItem>().first().id)
+        println("[artist] ${a.name} · subscribe channel ${a.channelId} · subscribed=${a.subscribed}")
+        assertTrue("subscribe channel", a.channelId?.startsWith("UC") == true)
+        val album = ytm.album(a.shelves.first { it.title.equals("Albums", true) }.items.first().id)
+        println("[album] ${album.title} · ${album.releaseKind} ${album.year} · explicit=${album.explicit} · artist photo=${album.artistThumbnail != null} · other versions: ${album.otherVersions.joinToString { it.title }}")
+        assertTrue("kind and year", album.releaseKind != null && album.year != null)
+        assertTrue("artist photo", album.artistThumbnail != null)
+        // Explicit albums carry YouTube's badge (this one's tracks are marked explicit, so the album is too).
+        assertEquals(album.songs.any { it.explicit }, album.explicit)
+        // Signed out, there's no library bookmark to report.
+        assertEquals(null, album.savedToLibrary)
+    }
+
+    @Test
     fun artistSections() = runBlocking {
         for (name in listOf("Taylor Swift", "Kendrick Lamar", "Arctic Monkeys")) {
             val a = ytm.artist(ytm.search(name, SearchFilter.ARTISTS).items.filterIsInstance<ArtistItem>().first().id)
@@ -74,3 +89,4 @@ class ArtistAlbumLiveTest {
         }
     }
 }
+

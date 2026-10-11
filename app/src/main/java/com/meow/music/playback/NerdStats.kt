@@ -29,3 +29,4 @@ data class NerdStats(
     val droppedFrames: Int = 0,
     val underruns: Int = 0,
 )
+

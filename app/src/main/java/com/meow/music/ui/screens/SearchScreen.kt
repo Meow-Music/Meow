@@ -86,6 +86,7 @@ import com.meow.music.ui.components.MoodTile
 import com.meow.music.ui.components.SectionHeader
 import com.meow.music.ui.components.SongRow
 import com.meow.music.ui.components.playable
+import com.meow.music.ui.components.pane
 import com.meow.music.ui.components.rememberPlayMenu
 import com.meow.music.ui.rememberLoad
 import com.meow.music.ui.theme.GlassSurface
@@ -151,7 +152,9 @@ fun SearchScreen(bottomPadding: Dp) {
         // Earlier results stay on screen until these land, so nothing flashes.
         if (filter == SearchFilter.TOP) {
             if (top == null) top = Load.Loading
-            top = runCatching { c.ytm.searchTop(live) }.fold({ Load.Ok(it) }, { Load.Err(it.message ?: "Search failed") })
+            // Leaned toward what this listener plays (built on the phone, never sent anywhere).
+            val taste = runCatching { c.taste.searchTaste() }.getOrDefault(com.meow.music.data.innertube.SearchRank.Taste.NONE)
+            top = runCatching { c.ytm.searchTop(live, taste) }.fold({ Load.Ok(it) }, { Load.Err(it.message ?: "Search failed") })
         } else {
             if (list == null) list = Load.Loading
             list = runCatching { c.ytm.search(live, filter) }
@@ -331,7 +334,7 @@ private fun TopResults(
                     }
                 }
                 else -> item("c:${f.name}") {
-                    ItemCarousel(items, open, cardWidth = if (f == SearchFilter.VIDEOS) 150.dp else 140.dp)
+                    ItemCarousel(items, open, cardWidth = if (f == SearchFilter.VIDEOS || f == SearchFilter.LIVE) 150.dp else 140.dp)
                 }
             }
         }
@@ -345,7 +348,7 @@ private fun TopCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> Unit) {
         is ArtistItem -> "Artist"
         is AlbumItem -> item.subtitle.substringBefore(" • ").takeIf { it in setOf("Album", "Single", "EP") } ?: "Album"
         is PlaylistItem -> "Playlist"
-        is SongItem -> if (item.song.isVideo) "Video" else "Song"
+        is SongItem -> if (item.song.isLive) "● Live" else if (item.song.isVideo) "Video" else "Song"
         else -> ""
     }
     val detail = when (item) {
@@ -355,8 +358,11 @@ private fun TopCard(item: BrowseItem, onClick: () -> Unit, onPlay: () -> Unit) {
     }
     val ui = com.meow.music.ui.theme.LocalUi.current
     Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clip(ui.card)
-            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(scheme.surfaceContainerHigh, scheme.primaryContainer.copy(alpha = 0.55f))))
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
+            .then(
+                if (com.meow.music.ui.components.LocalFrosted.current) Modifier.pane(ui.card)
+                else Modifier.clip(ui.card).background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(scheme.surfaceContainerHigh, scheme.primaryContainer.copy(alpha = 0.55f))))
+            )
             .clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -394,7 +400,7 @@ private fun SuggestionRow(
 @Composable
 fun ResultRow(item: BrowseItem, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     if (item is SongItem) {
-        SongRow(item.song, trailingInfo = if (item.song.isVideo) "Video" else null, onClick = onClick)
+        SongRow(item.song, trailingInfo = if (item.song.isLive) "● LIVE" else if (item.song.isVideo) "Video" else null, onClick = onClick)
         return
     }
     val ui = com.meow.music.ui.theme.LocalUi.current
@@ -423,3 +429,4 @@ fun ResultRow(item: BrowseItem, onLongClick: (() -> Unit)? = null, onClick: () -
         }
     }
 }
+

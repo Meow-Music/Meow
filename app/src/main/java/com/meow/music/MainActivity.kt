@@ -49,7 +49,9 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.WifiTethering
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -149,17 +151,70 @@ class MainActivity : ComponentActivity() {
         // Picks up lossless files added while Meow is closed.
         com.meow.music.download.LosslessSyncWorker.schedule(this)
         if (c.settings.current.isLoggedIn) c.library.syncInBackground()
-        deepLink.value = intent?.data
+        deepLink.value = linkIn(intent)
         setContent {
-            CompositionLocalProvider(LocalContainer provides c) {
+            CompositionLocalProvider(LocalContainer provides c, com.meow.music.ui.player.LocalPip provides inPip.value) {
                 MeowRoot(deepLink)
             }
         }
     }
 
+    // ---------------------------------------------------------------- Picture-in-picture
+
+    /** True while Meow is shown as a picture-in-picture window (a music video floating over other apps). */
+    private val inPip = androidx.compose.runtime.mutableStateOf(false)
+    /** A music video is playing on the open player, so leaving Meow floats it. */
+    private var pipEligible = false
+    private var pipAspect = android.util.Rational(16, 9)
+
+    private val pipSupported by lazy { packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) }
+
+    private fun pipParams(): android.app.PictureInPictureParams = android.app.PictureInPictureParams.Builder()
+        .setAspectRatio(pipAspect)
+        .apply { if (Build.VERSION.SDK_INT >= 31) { setAutoEnterEnabled(pipEligible); setSeamlessResizeEnabled(true) } }
+        .build()
+
+    /** The player says whether a music video is playing on it, and its shape ([width] × [height], 0 if unknown). */
+    fun setPipEligible(eligible: Boolean, width: Int = 0, height: Int = 0) {
+        if (!pipSupported) return
+        pipEligible = eligible
+        // Android only takes ratios between 1:2.39 and 2.39:1.
+        if (width > 0 && height > 0) pipAspect = android.util.Rational(width, height).let { r ->
+            when {
+                r.toFloat() > 2.39f -> android.util.Rational(239, 100)
+                r.toFloat() < 1 / 2.39f -> android.util.Rational(100, 239)
+                else -> r
+            }
+        }
+        // Android 12+ floats the video by itself when the listener goes Home.
+        runCatching { setPictureInPictureParams(pipParams()) }
+    }
+
+    /** Floats the music video now (the player's PiP button). False if Android or the listener's settings won't allow it. */
+    fun enterPip(): Boolean = pipSupported && runCatching { enterPictureInPictureMode(pipParams()) }.getOrDefault(false)
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Before Android 12 there's no auto-enter: going Home with a video playing floats it here.
+        if (Build.VERSION.SDK_INT < 31 && pipEligible) enterPip()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip.value = isInPictureInPictureMode
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        deepLink.value = intent.data
+        linkIn(intent)?.let { deepLink.value = it }
+    }
+
+    /** A music.youtube.com link opened in Meow, or a YouTube / YouTube Music link shared to it. */
+    private fun linkIn(intent: Intent?): Uri? = when (intent?.action) {
+        Intent.ACTION_SEND -> com.meow.music.data.ShareLinks.findIn(intent.getStringExtra(Intent.EXTRA_TEXT))?.let(Uri::parse).also {
+            if (it == null) Toast.makeText(this, "That isn't a YouTube or YouTube Music link", Toast.LENGTH_SHORT).show()
+        }
+        else -> intent?.data
     }
 }
 
@@ -213,9 +268,38 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
     val context = LocalContext.current
 
     MeowTheme(settings, artColor) {
+        // System bar icons follow Meow's theme, not the phone's (they differ when Appearance isn't "System").
+        val dark = com.meow.music.ui.theme.LocalIsDark.current
+        val rootView = androidx.compose.ui.platform.LocalView.current
+        LaunchedEffect(dark) {
+            (rootView.context as? android.app.Activity)?.window?.let { w ->
+                androidx.core.view.WindowCompat.getInsetsController(w, rootView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+        }
         val navController = rememberNavController()
         var playerOpen by rememberSaveable { mutableStateOf(false) }
-        val navigator = remember(navController) { Navigator(navController) { playerOpen = true } }
+        val navigator = remember(navController) {
+            Navigator(navController, openPlayer = { playerOpen = true }, playMix = { mix ->
+                c.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                    val r = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { c.ytm.next(mix.seedVideoId, mix.id, mix.params) } }.getOrNull()
+                    if (r == null || r.songs.isEmpty()) {
+                        Toast.makeText(context, "Couldn't start ${mix.title}", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+                    // Stations like "Listen together" open on a live stream: found out now (the stream is resolved anyway), it starts as one.
+                    val first = r.songs.first()
+                    val live = first.isLive || kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        kotlinx.coroutines.withTimeoutOrNull(8_000) { runCatching { c.streams.isLive(first.id) }.getOrDefault(false) } ?: false
+                    }
+                    val songs = if (live && !first.isLive) listOf(first.copy(isLive = true)) + r.songs.drop(1) else r.songs
+                    c.queue.counterparts.putAll(r.counterparts)
+                    c.player.playQueue(songs, 0, com.meow.music.playback.QueueSource(com.meow.music.playback.QueueKind.RADIO, mix.title))
+                }
+            })
+        }
         // Playback that should be watched (a music video picked from a list) brings the player up.
         LaunchedEffect(Unit) { c.player.showPlayer.collect { playerOpen = true } }
         val haze = rememberHazeState()
@@ -224,11 +308,14 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
         val showChrome = route != Routes.LOGIN && route != Routes.WELCOME
         val tabs = settings.navTabs.map { it.tab() }
 
+        val together by c.together.state.collectAsState()
+        val inSession = together is com.meow.music.playback.together.TogetherState.Hosting || together is com.meow.music.playback.together.TogetherState.Guest
         // Room the pages leave at the bottom for the bar, the mini player and the system's own bar.
         val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val bottomPadding = navInset + navHeight(settings.navStyle) +
             (if (settings.navStyle == NavBarStyle.DOCKED) 0.dp else 16.dp) +
-            (if (song != null) miniHeight(settings.miniPlayerStyle) + 8.dp else 0.dp)
+            (if (song != null) miniHeight(settings.miniPlayerStyle) + 8.dp else 0.dp) +
+            (if (inSession) 42.dp else 0.dp)
 
         // Decided once: the tab Meow opens on is the root every other tab sits on, and the welcome
         // screen is a real destination, so signing in from it navigates inside a graph that already exists.
@@ -265,17 +352,27 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
             c.player.errors.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
         }
         LaunchedEffect(Unit) {
+            c.together.events.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+        }
+        LaunchedEffect(Unit) {
             deepLink.collect { uri -> if (uri != null) { handleDeepLink(uri, navigator, c); deepLink.value = null } }
         }
 
         val selectTab: (String) -> Unit = { r ->
-            if (r == root) {
-                // The root tab always means its top, from anywhere (Settings included).
-                if (!navController.popBackStack(root, inclusive = false)) goRoot()
-            } else {
-                navController.navigate(r) {
-                    popUpTo(root)
+            // The tab whose pages are showing: the first tab page above the root, else the root's own.
+            val tabRoutes = tabs.map { it.route }.toSet()
+            val stack = navController.currentBackStack.value.mapNotNull { it.destination.route }
+            val currentTab = stack.drop(1).firstOrNull { it in tabRoutes } ?: root
+            when {
+                // The root tab always means its top, from anywhere.
+                r == root -> if (!navController.popBackStack(root, inclusive = false, saveState = true)) goRoot()
+                // Tapping the tab you're in takes you back to its top.
+                r == currentTab -> navController.popBackStack(r, inclusive = false)
+                // Every other tab keeps its own pages: leaving Settings on Appearance comes back to Appearance.
+                else -> navController.navigate(r) {
+                    popUpTo(root) { saveState = true }
                     launchSingleTop = true
+                    restoreState = true
                 }
             }
         }
@@ -303,6 +400,7 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         composable(Routes.CATALOGUE) { ScreenBackdrop(BackdropScreen.HOME) { CatalogueScreen(bottomPadding) } }
                         composable(Routes.MOODS) { ScreenBackdrop(BackdropScreen.SEARCH) { com.meow.music.ui.screens.MoodsScreen(bottomPadding) } }
                         composable(Routes.IMPORT) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.ImportScreen(bottomPadding) } }
+                        composable(Routes.TOGETHER) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.TogetherScreen(bottomPadding) } }
                         composable(Routes.DOWNLOADS) { CollectionScreen(CollectionType.DOWNLOADS, "downloads", null, bottomPadding) }
                         composable(Routes.LOGIN) {
                             LoginScreen(
@@ -347,6 +445,9 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                             .then(if (docked) Modifier else Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)),
                     ) {
+                        AnimatedVisibility(inSession && !playerOpen && route != Routes.TOGETHER, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
+                            TogetherPill(together, Modifier.padding(bottom = 8.dp)) { navigator.go(Routes.TOGETHER) }
+                        }
                         AnimatedVisibility(song != null && !playerOpen, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
                             MiniPlayer(
                                 Modifier.padding(bottom = 8.dp).then(if (docked) Modifier.padding(horizontal = 10.dp) else Modifier),
@@ -363,6 +464,34 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                 ) {
                     NowPlayingScreen { playerOpen = false }
                 }
+            }
+        }
+    }
+}
+
+/** Above the mini player while a Listen Together session is on: who with, and a way back to it. */
+@Composable
+private fun TogetherPill(state: com.meow.music.playback.together.TogetherState, modifier: Modifier, onClick: () -> Unit) {
+    val (icon, text) = when (state) {
+        is com.meow.music.playback.together.TogetherState.Hosting ->
+            Icons.Rounded.WifiTethering to "Hosting · code ${state.code}" + when (state.guests.size) { 0 -> ""; 1 -> " · 1 listening"; else -> " · ${state.guests.size} listening" }
+        is com.meow.music.playback.together.TogetherState.Guest ->
+            Icons.Rounded.Groups to "With ${state.hostName}" + when {
+                !state.listenHere -> " · adding songs"
+                !state.inSync -> " · out of step"
+                else -> ""
+            }
+        else -> return
+    }
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        GlassSurface(Modifier.height(34.dp), shape = RoundedCornerShape(17.dp), elevation = 4.dp) {
+            Row(
+                Modifier.fillMaxHeight().clickable(onClickLabel = "Open Listen together", onClick = onClick).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(6.dp))
+                Text(text, style = MaterialTheme.typography.labelLarge, maxLines = 1)
             }
         }
     }
@@ -487,3 +616,6 @@ private fun launchSingle(c: AppContainer, videoId: String) = c.scope.launch {
     val song = r?.songs?.firstOrNull { it.id == videoId } ?: Song(videoId, "Loading…")
     withContext(Dispatchers.Main) { c.player.playSingle(song) }
 }
+
+
+

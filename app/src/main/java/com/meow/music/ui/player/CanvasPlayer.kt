@@ -214,3 +214,4 @@ private class FadingFrame(context: Context) : FrameLayout(context) {
         canvas.restoreToCount(layer)
     }
 }
+

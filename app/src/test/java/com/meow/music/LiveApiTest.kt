@@ -186,8 +186,8 @@ class LiveApiTest {
             val buf = ByteArray(65536)
             val n = r.body.byteStream().read(buf)
             log("open request -> HTTP ${r.code}, length=${r.header("Content-Length")}, first read $n bytes")
-            assertTrue(r.code == 200 || r.code == 206 || r.code == 403)
-            if (r.code != 403) assertTrue(n > 0)
+            assertTrue(r.code == 200 || r.code == 206)
+            assertTrue(n > 0)
         }
     }
 
@@ -372,3 +372,4 @@ class LiveApiTest {
         assertTrue("at least two songs have animated cover art", hits >= 2)
     }
 }
+

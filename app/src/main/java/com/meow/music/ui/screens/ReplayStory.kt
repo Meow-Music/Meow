@@ -785,7 +785,7 @@ private fun Discovery(s: ReplayStory, modifier: Modifier) {
 
 @Composable
 private fun PersonalitySlide(p: Personality, modifier: Modifier) {
-    val turn by rememberInfiniteTransition(label = "meow").animateFloat(0f, 360f, infiniteRepeatable(tween(16_000, easing = LinearEasing)), label = "a")
+    val turn by rememberInfiniteTransition(label = "Meow").animateFloat(0f, 360f, infiniteRepeatable(tween(16_000, easing = LinearEasing)), label = "a")
     Column(modifier, verticalArrangement = Arrangement.Center) {
         Text("YOUR LISTENING PERSONALITY", style = kicker(), modifier = Modifier.reveal(100))
         Spacer(Modifier.height(24.dp))
@@ -913,3 +913,6 @@ private fun Pill(label: String, icon: androidx.compose.ui.graphics.vector.ImageV
         Text(label, style = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, color = fg))
     }
 }
+
+
+

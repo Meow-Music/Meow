@@ -28,13 +28,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Lyrics
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -232,15 +229,15 @@ fun WelcomeScreen(onSignIn: () -> Unit, onSkip: () -> Unit) {
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(28.dp),
             verticalArrangement = Arrangement.Bottom,
         ) {
-            Text("meow", color = Color.White, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Black)
+            Text("Meow", color = Color.White, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Black)
             Text("Your YouTube Music, refracted.", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(22.dp))
+            Spacer(Modifier.height(28.dp))
+            Feature(Icons.Rounded.SurroundSound, "Meow Spatial audio & a 10-band EQ")
             Feature(Icons.Rounded.Lyrics, "Live lyrics on the player from ten sources")
+            Feature(Icons.Rounded.Category, "Sort any playlist by genre")
             Feature(Icons.Rounded.Download, "Smart downloads & offline liked songs")
             Feature(Icons.Rounded.Palette, "Make it yours: fonts, layout, player & more")
-            Feature(Icons.Rounded.Person, "Personal and Privacy Based, while Making App compact and handy")
-            Feature(Icons.Rounded.MusicNote, "Highly Customizable and Beautifully Designed")
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(32.dp))
             Button(onClick = onSignIn, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
                 Text("Sign in with Google", style = MaterialTheme.typography.titleMedium)
             }
@@ -262,3 +259,5 @@ private fun Feature(icon: ImageVector, text: String) {
         Text(text, color = Color.White, style = MaterialTheme.typography.bodyLarge)
     }
 }
+
+

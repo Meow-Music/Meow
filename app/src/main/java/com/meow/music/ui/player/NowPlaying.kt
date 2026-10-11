@@ -60,6 +60,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.FormatQuote
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
@@ -238,8 +239,20 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
             else -> onCollapse()
         }
     }
-    if (videoMode && (fullscreenVideo || landscape)) {
-        FullscreenVideo(song, forceLandscape = fullscreenVideo, onExit = { fullscreenVideo = false })
+    // Picture-in-picture: a music video playing here floats over other apps when the listener
+    // leaves Meow (or taps the PiP button); the window then shows just the video.
+    val inPip = LocalPip.current
+    val activity = view.context as? com.meow.music.MainActivity
+    DisposableEffect(videoMode, isPlaying, activity) {
+        val size = pc.player?.videoSize
+        activity?.setPipEligible(
+            videoMode && isPlaying,
+            ((size?.width ?: 0) * (size?.pixelWidthHeightRatio ?: 1f)).toInt(), size?.height ?: 0,
+        )
+        onDispose { activity?.setPipEligible(false) }
+    }
+    if (videoMode && (fullscreenVideo || landscape || inPip)) {
+        FullscreenVideo(song, forceLandscape = fullscreenVideo && !inPip, pip = inPip, onExit = { fullscreenVideo = false })
         return
     }
 
@@ -309,7 +322,12 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                 if (fullBlur < 1f) ArtworkMeshBackdrop(mesh, Modifier.graphicsLayer { alpha = 1f - fullBlur }, seam = if (heroMode) heroHeight else 0.dp)
                 if (fullBlur > 0f) FullArtworkBlurBackdrop(blurImage, Modifier.graphicsLayer { alpha = fullBlur })
             }
-            com.meow.music.data.prefs.PlayerBackground.BLUR -> FullArtworkBlurBackdrop(blurImage)
+            // "Show background" lifts the darkening: about as before at its default, down to a light veil at full.
+            com.meow.music.data.prefs.PlayerBackground.BLUR -> FullArtworkBlurBackdrop(blurImage, scrim = 1.3f - 0.95f * settings.playerBackdropShow)
+            com.meow.music.data.prefs.PlayerBackground.APPEARANCE -> {
+                AppearanceBackdrop(settings.playerBackdropShow)
+                if (fullBlur > 0f) FullArtworkBlurBackdrop(blurImage, Modifier.graphicsLayer { alpha = fullBlur })
+            }
             com.meow.music.data.prefs.PlayerBackground.THEME -> ThemeBackdrop()
             com.meow.music.data.prefs.PlayerBackground.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
         }
@@ -443,6 +461,11 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                             MusicVideoSurface(Modifier.fillMaxSize(), fill = videoFill)
                             Row(Modifier.align(Alignment.BottomEnd).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 VideoChip(Icons.Rounded.AspectRatio, if (videoFill) "Fit video" else "Fill") { videoFill = !videoFill }
+                                if (activity != null) VideoChip(Icons.Rounded.PictureInPictureAlt, "Picture-in-picture") {
+                                    if (!activity.enterPip()) android.widget.Toast.makeText(
+                                        context, "Picture-in-picture is off for Meow in Android's settings", android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                                 VideoChip(Icons.Rounded.Fullscreen, "Full screen") { fullscreenVideo = true }
                             }
                         }
@@ -628,6 +651,35 @@ private fun ThemeBackdrop() {
     )
 }
 
+/**
+ * The background picked for Home in Appearance → Backgrounds. The player is always dark (white text and
+ * controls), so the background is drawn in its dark version whatever the app's theme, under a veil whose
+ * strength [show] sets, heavier toward the controls at the bottom.
+ */
+@Composable
+private fun AppearanceBackdrop(show: Float) {
+    val s = com.meow.music.ui.theme.LocalAppSettings.current
+    val (style, photo) = com.meow.music.ui.theme.Backdrop.parse(s.backdrops[com.meow.music.ui.theme.BackdropScreen.HOME.name])
+    val primary = MaterialTheme.colorScheme.primary
+    val darkScheme = remember(primary) { com.meow.music.ui.theme.schemeFromSeed(primary, dark = true, pureBlack = false) }
+    val veil = 1f - show
+    MaterialTheme(colorScheme = darkScheme) {
+        androidx.compose.runtime.CompositionLocalProvider(com.meow.music.ui.theme.LocalIsDark provides true) {
+            Box(Modifier.fillMaxSize().background(darkScheme.background)) {
+                com.meow.music.ui.theme.BackdropLayer(
+                    style, photo, dim = 0.7f * veil, motion = s.backdropMotion && !s.reduceMotion, modifier = Modifier.fillMaxSize(),
+                )
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.10f * veil), 0.55f to Color.Black.copy(alpha = 0.18f * veil + 0.04f),
+                            1f to Color.Black.copy(alpha = 0.45f * veil + 0.18f)),
+                    ),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun VideoChip(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
     Box(
@@ -659,9 +711,15 @@ fun MusicVideoSurface(modifier: Modifier, fill: Boolean) {
     )
 }
 
-/** Edge-to-edge landscape video with tap-to-show controls. */
+/** True while Meow is a picture-in-picture window (provided by MainActivity). */
+val LocalPip = androidx.compose.runtime.compositionLocalOf { false }
+
+/**
+ * Edge-to-edge landscape video with tap-to-show controls. In picture-in-picture ([pip]) it's the
+ * video alone: Android draws the window's own controls (from the media session) over it.
+ */
 @Composable
-private fun FullscreenVideo(song: Song, forceLandscape: Boolean, onExit: () -> Unit) {
+private fun FullscreenVideo(song: Song, forceLandscape: Boolean, pip: Boolean = false, onExit: () -> Unit) {
     val pc = LocalContainer.current.player
     val view = LocalView.current
     val activity = view.context as? Activity
@@ -686,7 +744,7 @@ private fun FullscreenVideo(song: Song, forceLandscape: Boolean, onExit: () -> U
             .pointerInput(Unit) { detectTapGestures(onTap = { controls = !controls }, onDoubleTap = { pc.togglePlay() }) },
     ) {
         MusicVideoSurface(Modifier.fillMaxSize(), fill = false)
-        AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(controls && !pip, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                 Column(Modifier.align(Alignment.TopStart).padding(24.dp)) {
                     Text(song.title, color = Color.White, style = MaterialTheme.typography.titleLarge, maxLines = 1)
@@ -708,3 +766,5 @@ private fun FullscreenVideo(song: Song, forceLandscape: Boolean, onExit: () -> U
         }
     }
 }
+
+

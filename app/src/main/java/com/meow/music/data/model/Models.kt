@@ -18,6 +18,8 @@ data class Song(
     val thumbnail: String? = null,
     val isVideo: Boolean = false,
     val explicit: Boolean = false,
+    /** A live stream (e.g. a "Listen together" station): played from its HLS manifest, with no end or cache. */
+    val isLive: Boolean = false,
 ) {
     val artistText: String get() = artists.joinToString(", ") { it.name }.ifBlank { "Unknown artist" }
     val primaryArtist: String get() = artists.firstOrNull()?.name ?: ""
@@ -52,6 +54,9 @@ data class PlaylistItem(
     override val thumbnail: String?,
     /** Radio/mix style lists are played via the watch endpoint rather than browsed. */
     val isMix: Boolean = false,
+    /** A station's seed song and watch params, which YouTube needs to start it (artist/"Listen together" stations). */
+    val seedVideoId: String? = null,
+    val params: String? = null,
 ) : BrowseItem
 
 data class ArtistItem(
@@ -78,7 +83,25 @@ data class Shelf(
     val items: List<BrowseItem>,
     val moreBrowseId: String? = null,
     val moreParams: String? = null,
+    /** YouTube's own grid (an artist's "See all" discography, for one), rather than a carousel. */
+    val grid: Boolean = false,
 )
+
+/** Album/single/EP ordering, by the year in a card's subtitle ("Album • 2024", or just "2024"). */
+object Releases {
+    private val yearRegex = Regex("\\b(19|20)\\d{2}\\b")
+    fun yearOf(item: BrowseItem): Int = yearRegex.find(item.subtitle)?.value?.toIntOrNull() ?: 0
+
+    /**
+     * Newest first. YouTube's discography lists are mostly newest first but tack live albums, radio
+     * specials and remixes on at the end in their own runs; a stable sort keeps its order within a year.
+     */
+    fun newestFirst(items: List<BrowseItem>): List<BrowseItem> =
+        if (items.none { it is AlbumItem }) items else items.sortedByDescending { yearOf(it) }
+
+    fun oldestFirst(items: List<BrowseItem>): List<BrowseItem> =
+        items.sortedWith(compareBy<BrowseItem> { yearOf(it).takeIf { y -> y > 0 } ?: Int.MAX_VALUE })
+}
 
 data class HomeFeed(val shelves: List<Shelf>, val continuation: String?)
 
@@ -99,7 +122,29 @@ data class CollectionPage(
     val artists: List<ArtistRef> = emptyList(),
     /** For albums: each track's play count on YouTube Music, by video id. */
     val trackPlays: Map<String, Long> = emptyMap(),
+    /** For albums: the lead artist's photo (YouTube shows it beside their name). */
+    val artistThumbnail: String? = null,
+    /** A playlist the signed-in account made (it can be edited, renamed and shared). */
+    val owned: Boolean = false,
+    /** An owned playlist's visibility on YouTube: "PRIVATE", "UNLISTED" or "PUBLIC". */
+    val privacy: String? = null,
+    /** In the account's library (YouTube's bookmark); null when that isn't known or doesn't apply. */
+    val savedToLibrary: Boolean? = null,
+    /** Each song's slot in an owned playlist (video id -> setVideoId), needed to take it out again. */
+    val setVideoIds: Map<String, String> = emptyMap(),
+    /** For albums: YouTube Music's "Other versions" (deluxe, clean, live…). */
+    val otherVersions: List<BrowseItem> = emptyList(),
+    val explicit: Boolean = false,
 ) {
+    /** An album's second line, "Album • 2026", split up. */
+    private val typeParts: List<String> get() = if (kind == CollectionKind.ALBUM) secondSubtitle.split(" • ").map { it.trim() } else emptyList()
+
+    /** "Album", "Single" or "EP". */
+    val releaseKind: String? get() = typeParts.firstOrNull { it in setOf("Album", "Single", "EP") }
+
+    /** The release year, when the header gives one. */
+    val year: Int? get() = typeParts.firstNotNullOfOrNull { p -> p.takeIf { it.length == 4 }?.toIntOrNull()?.takeIf { it in 1900..2100 } }
+
     /**
      * The album's standout tracks (Apple Music marks them with a star): clearly more
      * played than the album's typical track, at most about a third of it, never more than five.
@@ -130,6 +175,10 @@ data class ArtistPage(
     val shuffleParams: String? = null,
     /** Lifetime views on YouTube ("46,777,176,063 views"), from the About section. */
     val views: String? = null,
+    /** The channel YouTube subscribes to for this artist (not always [id]: that can be the music "topic" channel). */
+    val channelId: String? = null,
+    /** The signed-in account subscribes to the artist. */
+    val subscribed: Boolean = false,
 )
 
 data class SearchResult(val items: List<BrowseItem>, val continuation: String?)
@@ -179,3 +228,4 @@ fun parseDuration(text: String?): Int {
     if (parts.isEmpty()) return 0
     return parts.fold(0) { acc, p -> acc * 60 + p }
 }
+

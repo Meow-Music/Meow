@@ -161,3 +161,5 @@ private fun EqGraph(eq: EqSettings, modifier: Modifier, onBand: (Int, Float) -> 
         }
     }
 }
+
+

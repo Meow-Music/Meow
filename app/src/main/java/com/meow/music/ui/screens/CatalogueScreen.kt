@@ -312,7 +312,7 @@ private fun GreetingField() {
     }
 }
 
-/** Your name displayed in the greeting header (e.g. Good morning / Rexx). */
+/** Your name displayed in the greeting header (e.g. Good morning / Master). */
 @Composable
 private fun NameField() {
     val c = LocalContainer.current

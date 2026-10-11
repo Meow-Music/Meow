@@ -350,3 +350,4 @@ class VideoSync(
         private const val MIN_MARGIN = 0.08f
     }
 }
+

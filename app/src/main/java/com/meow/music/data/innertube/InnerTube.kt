@@ -31,6 +31,9 @@ class InnerTube(
 ) {
     private val current: AppSettings get() = settingsProvider()
 
+    /** Requests go out as the signed-in account. */
+    val signedIn: Boolean get() = current.isLoggedIn
+
 
     companion object {
         const val BASE = "https://music.youtube.com/youtubei/v1/"
@@ -39,11 +42,20 @@ class InnerTube(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
         private val JSON_TYPE = "application/json".toMediaType()
         val json = Json { ignoreUnknownKeys = true; isLenient = true }
+        /** The TV client's version (YouTube on smart TVs); bump it if TV playback starts being refused. */
+        const val TV_CLIENT_VERSION = "7.20250923.13.00"
+        /** youtube.com's web client, for [webPost] (live stream search). */
+        const val WEB_CLIENT_VERSION = "2.20250925.01.00"
     }
 
     @Volatile
     var clientVersion = "1.20260928.13.00"
+    @Volatile
     private var versionChecked = false
+    /** The visitor id read at start-up, used until the saved one comes through the settings. */
+    @Volatile
+    private var fetchedVisitor = ""
+    private val visitorData: String get() = current.visitorData.ifBlank { fetchedVisitor }
 
     private val locale: Locale get() = Locale.getDefault()
 
@@ -56,12 +68,12 @@ class InnerTube(
     private fun sha1(s: String): String =
         MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
-    private fun authorization(): String? {
+    private fun authorization(origin: String = ORIGIN): String? {
         val cookies = cookieMap()
         val sapisid = cookies["SAPISID"] ?: cookies["__Secure-3PAPISID"] ?: return null
         val ts = System.currentTimeMillis() / 1000
         // Same scheme as ytmusicapi's browser auth.
-        return "SAPISIDHASH ${ts}_${sha1("$ts $sapisid $ORIGIN")}"
+        return "SAPISIDHASH ${ts}_${sha1("$ts $sapisid $origin")}"
     }
 
     private fun context(): JsonObject = buildJsonObject {
@@ -73,7 +85,7 @@ class InnerTube(
             put("gl", locale.country.ifBlank { "US" })
             put("platform", "DESKTOP")
             put("userAgent", USER_AGENT)
-            if (s.visitorData.isNotBlank()) put("visitorData", s.visitorData)
+            if (visitorData.isNotBlank()) put("visitorData", visitorData)
         }
         putJsonObject("user") {
             val parts = s.dataSyncId.split("||")
@@ -89,7 +101,7 @@ class InnerTube(
         header("X-Origin", ORIGIN)
         header("X-YouTube-Client-Name", "67")
         header("X-YouTube-Client-Version", clientVersion)
-        if (s.visitorData.isNotBlank()) header("X-Goog-Visitor-Id", s.visitorData)
+        if (visitorData.isNotBlank()) header("X-Goog-Visitor-Id", visitorData)
         if (s.isLoggedIn) {
             header("Cookie", s.cookie)
             authorization()?.let { header("Authorization", it) }
@@ -98,16 +110,31 @@ class InnerTube(
         return this
     }
 
-    /** Reads the live web client version so requests keep looking like the current web app. */
+    private val versionLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Reads the live web client version (and a visitor id) so requests keep looking like the current web app.
+     * Requests that arrive together (Top results asks five searches at once) wait for it: without a visitor id
+     * YouTube answers differently, and Top results lost "After Hours" by The Weeknd from its albums that way.
+     */
     private suspend fun ensureClientVersion() {
         if (versionChecked) return
-        versionChecked = true
+        versionLock.lock()
+        try {
+            if (!versionChecked) fetchClientVersion()
+        } finally {
+            versionChecked = true
+            versionLock.unlock()
+        }
+    }
+
+    private fun fetchClientVersion() {
         runCatching {
             val req = Request.Builder().url(ORIGIN).header("User-Agent", USER_AGENT).build()
             val html = http.newCall(req).execute().use { it.body.string() }
             Regex("\"INNERTUBE_CLIENT_VERSION\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)?.let { clientVersion = it }
             if (current.visitorData.isBlank()) {
-                Regex("\"VISITOR_DATA\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)?.let { saveVisitorData(it) }
+                Regex("\"VISITOR_DATA\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)?.let { fetchedVisitor = it; saveVisitorData(it) }
             }
         }
     }
@@ -145,11 +172,114 @@ class InnerTube(
             }
         }
 
-    /** Fire-and-forget GET used for playback-history pings. */
-    suspend fun ping(url: String) = withContext(Dispatchers.IO) {
-        runCatching {
-            val req = Request.Builder().url(url).get().applyHeaders().build()
-            http.newCall(req).execute().close()
+    /**
+     * Asks youtube.com itself (the WEB client, anonymously) rather than YouTube Music. Used for what
+     * YouTube Music has no filter for, like live streams.
+     */
+    suspend fun webPost(endpoint: String, body: JsonObject): JsonObject = withContext(Dispatchers.IO) {
+        val payload = buildJsonObject {
+            putJsonObject("context") {
+                putJsonObject("client") {
+                    put("clientName", "WEB")
+                    put("clientVersion", WEB_CLIENT_VERSION)
+                    put("hl", locale.language.ifBlank { "en" })
+                    put("gl", locale.country.ifBlank { "US" })
+                    put("platform", "DESKTOP")
+                    put("userAgent", USER_AGENT)
+                }
+            }
+            body.forEach { (k, v) -> put(k, v) }
+        }
+        val req = Request.Builder()
+            .url("https://www.youtube.com/youtubei/v1/$endpoint?prettyPrint=false")
+            .post(payload.toString().toRequestBody(JSON_TYPE))
+            .header("User-Agent", USER_AGENT)
+            .header("Origin", "https://www.youtube.com")
+            .header("Referer", "https://www.youtube.com/")
+            .header("X-YouTube-Client-Name", "1")
+            .header("X-YouTube-Client-Version", WEB_CLIENT_VERSION)
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val text = resp.body.string()
+            if (!resp.isSuccessful) throw InnerTubeException("YouTube returned HTTP ${resp.code}", resp.code)
+            json.parseToJsonElement(text).jsonObject
         }
     }
+
+    /** A client the player endpoint can be asked as, for streams anonymous playback can't get. */
+    enum class PlayerClient(val clientName: String, val nameId: Int, val userAgent: String, val origin: String) {
+        /** YouTube on TVs: takes the signed-in cookies, plays age-restricted and Premium-only songs, needs no PO token. */
+        TV("TVHTML5", 7, "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version", "https://www.youtube.com"),
+        /** The YouTube Music web app itself. */
+        WEB_REMIX("WEB_REMIX", 67, InnerTube.USER_AGENT, InnerTube.ORIGIN),
+    }
+
+    /**
+     * The player response for [videoId] as the signed-in user, from [client]. Blocking: called from
+     * ExoPlayer's loader threads. [signatureTimestamp] is the current player JS's, so its ciphered
+     * stream URLs can be deciphered.
+     */
+    fun signedInPlayer(client: PlayerClient, videoId: String, signatureTimestamp: Int?): JsonObject {
+        val s = current
+        val version = if (client == PlayerClient.TV) TV_CLIENT_VERSION else clientVersion
+        val payload = buildJsonObject {
+            putJsonObject("context") {
+                putJsonObject("client") {
+                    put("clientName", client.clientName)
+                    put("clientVersion", version)
+                    put("hl", locale.language.ifBlank { "en" })
+                    put("gl", locale.country.ifBlank { "US" })
+                    put("userAgent", client.userAgent)
+                    if (s.visitorData.isNotBlank()) put("visitorData", s.visitorData)
+                }
+                putJsonObject("user") {
+                    val parts = s.dataSyncId.split("||")
+                    if (parts.size > 1 && parts[1].isNotBlank()) put("onBehalfOfUser", parts[0])
+                }
+            }
+            put("videoId", videoId)
+            // Skips the "this may be inappropriate" interstitial on age-restricted videos.
+            put("racyCheckOk", true)
+            put("contentCheckOk", true)
+            putJsonObject("playbackContext") {
+                putJsonObject("contentPlaybackContext") {
+                    put("html5Preference", "HTML5_PREF_WANTS")
+                    if (signatureTimestamp != null) put("signatureTimestamp", signatureTimestamp)
+                }
+            }
+        }
+        val req = Request.Builder()
+            .url("${client.origin}/youtubei/v1/player?prettyPrint=false")
+            .post(payload.toString().toRequestBody(JSON_TYPE))
+            .header("User-Agent", client.userAgent)
+            .header("Origin", client.origin)
+            .header("Referer", "${client.origin}/")
+            .header("X-Origin", client.origin)
+            .header("X-YouTube-Client-Name", client.nameId.toString())
+            .header("X-YouTube-Client-Version", version)
+            .apply {
+                if (s.visitorData.isNotBlank()) header("X-Goog-Visitor-Id", s.visitorData)
+                header("Cookie", s.cookie)
+                authorization(client.origin)?.let { header("Authorization", it) }
+                header("X-Goog-AuthUser", "0")
+            }
+            .build()
+        http.newCall(req).execute().use { resp ->
+            val text = resp.body.string()
+            if (!resp.isSuccessful) {
+                val msg = runCatching { json.parseToJsonElement(text).str("error", "message") }.getOrNull()
+                throw InnerTubeException(msg ?: "YouTube returned HTTP ${resp.code}", resp.code)
+            }
+            return json.parseToJsonElement(text).jsonObject
+        }
+    }
+
+    /** Fire-and-forget GET used for playback-history pings. */
+    suspend fun ping(url: String): Int? = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = Request.Builder().url(url).get().applyHeaders().build()
+            http.newCall(req).execute().use { it.code }
+        }.getOrNull()
+    }
 }
+

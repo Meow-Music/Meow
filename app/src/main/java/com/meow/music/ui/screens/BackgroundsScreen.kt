@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.meow.music.ui.LocalNavigator
+import com.meow.music.ui.components.pane
 import com.meow.music.ui.theme.Backdrop
 import com.meow.music.ui.theme.BackdropLayer
 import com.meow.music.ui.theme.BackdropScreen
@@ -111,7 +112,7 @@ fun BackgroundsScreen(bottomPadding: Dp) {
         horizontalPadding = 16.dp, spacing = 12.dp,
     ) {
             item {
-                Column(Modifier.clip(ui.card).background(MaterialTheme.colorScheme.surfaceContainer).padding(vertical = 8.dp)) {
+                Column(Modifier.pane(ui.card, MaterialTheme.colorScheme.surfaceContainer).padding(vertical = 8.dp)) {
                     Row(Modifier.fillMaxWidth().clickable { everywhere = !everywhere }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Same on every screen", style = MaterialTheme.typography.bodyLarge)
@@ -133,7 +134,21 @@ fun BackgroundsScreen(bottomPadding: Dp) {
                     Modifier.padding(start = 8.dp, top = 10.dp),
                 )
             }
-            Backdrop.entries.chunked(3).forEachIndexed { r, row -> item(key = "bg:$r") {
+            com.meow.music.ui.theme.BackdropGroup.entries.forEach { group ->
+            if (group != com.meow.music.ui.theme.BackdropGroup.YOURS) item(key = "g:${group.name}") {
+                Column(Modifier.padding(start = 8.dp, top = 8.dp)) {
+                    Text(group.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        when (group) {
+                            com.meow.music.ui.theme.BackdropGroup.COLOUR -> "Glowing in dark mode, soft pastels in light mode"
+                            com.meow.music.ui.theme.BackdropGroup.DESIGNS -> "Detailed scenes that fade away behind the text"
+                            else -> "Quiet patterns in your accent colour"
+                        },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Backdrop.entries.filter { it.group == group }.chunked(3).forEachIndexed { r, row -> item(key = "bg:${group.name}:$r") {
               Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
               row.forEach { style ->
                 val selected = style == currentStyle
@@ -170,15 +185,16 @@ fun BackgroundsScreen(bottomPadding: Dp) {
               repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
               }
             } }
+            }
             item {
-                Column(Modifier.padding(top = 8.dp).clip(ui.card).background(MaterialTheme.colorScheme.surfaceContainer).padding(16.dp)) {
+                Column(Modifier.padding(top = 8.dp).pane(ui.card, MaterialTheme.colorScheme.surfaceContainer).padding(16.dp)) {
                     Text("Softness", style = MaterialTheme.typography.bodyLarge)
                     Text("How much the theme colour washes over the background, for easier reading", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Slider(dim, { dim = it }, valueRange = 0f..0.8f, onValueChangeFinished = { c.settings.setBackdropDim(dim) })
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Gentle motion", style = MaterialTheme.typography.bodyLarge)
-                            Text("Colour fields drift slowly", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Colour fields drift, waves roll and ripples spread, slowly", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(s.backdropMotion, { c.settings.setBackdropMotion(it) })
                     }
@@ -202,3 +218,5 @@ private fun savePhoto(context: android.content.Context, uri: Uri, name: String):
     dir.listFiles { f -> f.name.startsWith("$name-") }?.forEach { it.delete() }
     File(dir, "$name-${System.currentTimeMillis()}.jpg").also { f -> f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) } }
 }.getOrNull()
+
+

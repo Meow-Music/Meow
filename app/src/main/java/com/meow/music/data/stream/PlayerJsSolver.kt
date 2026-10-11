@@ -48,7 +48,7 @@ class PlayerJsSolver(private val context: Context, private val http: OkHttpClien
         check(Looper.myLooper() != Looper.getMainLooper()) { "PlayerJsSolver.solve on the main thread" }
         val iso = isolateFor(playerId)
         val args = buildJsonArray { add(sig); add(n) }.toString()
-        val out = Json.parseToJsonElement(evaluate(iso, "meowSolve.apply(null, $args)", SOLVE_TIMEOUT_S)) as JsonObject
+        val out = Json.parseToJsonElement(evaluate(iso, "MeowSolve.apply(null, $args)", SOLVE_TIMEOUT_S)) as JsonObject
         out["error"]?.jsonPrimitive?.contentOrNull?.let { throw IOException("Player JS: $it") }
         out["sig"]?.jsonPrimitive?.contentOrNull to out["n"]?.jsonPrimitive?.contentOrNull
     }
@@ -89,7 +89,7 @@ class PlayerJsSolver(private val context: Context, private val http: OkHttpClien
         isolate?.let { if (loadedId == playerId) return it }
         val p = player(playerId)
         val iso = isolate ?: newIsolate()
-        val result = evaluateLarge(iso, "meowLoad(${JsonPrimitive(p.code)})")
+        val result = evaluateLarge(iso, "MeowLoad(${JsonPrimitive(p.code)})")
         if (result != "ok") throw IOException("Player JS $playerId: $result")
         loadedId = playerId
         return iso
@@ -162,29 +162,29 @@ class PlayerJsSolver(private val context: Context, private val http: OkHttpClien
         const val SOLVE_TIMEOUT_S = 15L
 
         /**
-         * meowLoad preprocesses a player with EJS and keeps its solvers (what EJS's getFromPrepared does
+         * MeowLoad preprocesses a player with EJS and keeps its solvers (what EJS's getFromPrepared does
          * with a preprocessed player), so each solve is just two calls. Results are always strings.
          */
         val GLUE = """
-            var meowSolvers = null;
-            function meowLoad(code) {
+            var MeowSolvers = null;
+            function MeowLoad(code) {
               try {
                 var out = jsc({ type: "player", player: code, requests: [], output_preprocessed: true });
                 if (out.type !== "result") return String(out.error).slice(0, 2000);
                 var r = { n: null, sig: null };
                 Function("_result", out.preprocessed_player)(r);
                 if (!r.sig) return "no signature function found";
-                meowSolvers = r;
+                MeowSolvers = r;
                 return "ok";
               } catch (e) {
                 return String((e && e.stack) || e).slice(0, 2000);
               }
             }
-            function meowSolve(sig, n) {
+            function MeowSolve(sig, n) {
               try {
                 return JSON.stringify({
-                  sig: sig == null ? null : meowSolvers.sig(sig),
-                  n: n == null || !meowSolvers.n ? n : meowSolvers.n(n),
+                  sig: sig == null ? null : MeowSolvers.sig(sig),
+                  n: n == null || !MeowSolvers.n ? n : MeowSolvers.n(n),
                 });
               } catch (e) {
                 return JSON.stringify({ error: String(e).slice(0, 2000) });
@@ -194,3 +194,5 @@ class PlayerJsSolver(private val context: Context, private val http: OkHttpClien
         """.trimIndent()
     }
 }
+
+

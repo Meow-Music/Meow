@@ -76,12 +76,12 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
     private var songLoudness: Float? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private val likeCommand = SessionCommand("Meow.LIKE", Bundle.EMPTY)
-    private val shuffleCommand = SessionCommand("Meow.SHUFFLE", Bundle.EMPTY)
-    private val repeatCommand = SessionCommand("Meow.REPEAT", Bundle.EMPTY)
-    private val lyricsCommand = SessionCommand("Meow.CAR_LYRICS", Bundle.EMPTY)
-    private val radioCommand = SessionCommand("Meow.RADIO", Bundle.EMPTY)
-    private val dislikeCommand = SessionCommand("Meow.DISLIKE", Bundle.EMPTY)
+    private val likeCommand = SessionCommand("meow.LIKE", Bundle.EMPTY)
+    private val shuffleCommand = SessionCommand("meow.SHUFFLE", Bundle.EMPTY)
+    private val repeatCommand = SessionCommand("meow.REPEAT", Bundle.EMPTY)
+    private val lyricsCommand = SessionCommand("meow.CAR_LYRICS", Bundle.EMPTY)
+    private val radioCommand = SessionCommand("meow.RADIO", Bundle.EMPTY)
+    private val dislikeCommand = SessionCommand("meow.DISLIKE", Bundle.EMPTY)
     private val customCommands get() = listOf(likeCommand, shuffleCommand, repeatCommand, lyricsCommand, radioCommand, dislikeCommand)
     /** What the media session (Android Auto, the notification) sees: the player, with lyrics laid over the title and cover. */
     private lateinit var sessionPlayer: LyricsOverlayPlayer
@@ -120,6 +120,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
                     c.playbackDataSourceFactory(), c.videoDataSourceFactory(),
                     androidx.media3.datasource.DefaultDataSource.Factory(this),
                     localAudio = { item -> losslessFileFor(item) },
+                    liveDsf = c.liveDataSourceFactory(),
                 )
             )
             .setAudioAttributes(
@@ -211,9 +212,10 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         flushPlayTime()
+        applyLiveVideo()
         val song = mediaItem?.toSong() ?: return
         // Disliked songs are passed over when the queue reaches them on its own (tapping one still plays it).
-        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && c.library.isDisliked(song.id) && player.hasNextMediaItem()) {
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO && !c.queue.followingHost && c.library.isDisliked(song.id) && player.hasNextMediaItem()) {
             player.seekToNextMediaItem()
             return
         }
@@ -224,10 +226,6 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         c.streamDetails[song.id]?.let { applyStreamStats(song.id) }
         scope.launch(Dispatchers.IO) { c.library.recordPlayed(song) }
         loadExtras(song)
-        maybeAutoplay()
-        updateButtons()
-        carLyrics.refresh()
-        scheduleSave()
         // Every new song starts as the song; the track that just finished goes back to audio too,
         // so returning to it doesn't land in its video.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
@@ -237,6 +235,12 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
                 if (other.videoModeId != null) other.toSong()?.let { player.replaceMediaItem(i, it.toMediaItem(null)) }
             }
         }
+        continueVideo()
+        maybeAutoplay()
+        prefetchNext()
+        updateButtons()
+        carLyrics.refresh()
+        scheduleSave()
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -259,6 +263,20 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
 
     override fun onPlayerError(error: PlaybackException) {
         val id = player.currentMediaItem?.mediaId ?: return
+        // It turned out to be a live stream (a "Listen together" station): play it again as one, from its HLS manifest.
+        val live = generateSequence(error as Throwable) { it.cause }.filterIsInstance<com.meow.music.data.stream.LiveStreamException>().firstOrNull()
+        if (live != null) {
+            val idx = player.currentMediaItemIndex
+            val song = player.currentMediaItem?.toSong()
+            if (song != null && !song.isLive) {
+                player.replaceMediaItem(idx, song.copy(isLive = true).toMediaItem())
+                applyLiveVideo()
+                player.seekToDefaultPosition(idx)
+                player.prepare()
+                player.play()
+                return
+            }
+        }
         // A music video that won't load falls back to the song itself — never skip ahead.
         if (player.currentMediaItem?.videoModeId != null) {
             scope.launch { revertVideo(id) }
@@ -310,7 +328,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         songLoudness = c.loudness.getFloat(song.id, Float.NaN).takeIf { !it.isNaN() }
         applyNormalization()
         extrasJob = scope.launch {
-            val ex = runCatching { withContext(Dispatchers.IO) { c.ytm.playerExtras(song.id) } }.getOrNull()
+            val ex = runCatching { withContext(Dispatchers.IO) { c.ytm.playerExtras(song.id, c.streams.signatureTimestamp()) } }.getOrNull()
             ex?.loudnessDb?.toFloat()?.let { loud ->
                 c.loudness.edit().putFloat(song.id, loud).apply()
                 if (trackedSong?.id == song.id) { songLoudness = loud; applyNormalization() }
@@ -328,7 +346,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
      */
     fun maybeAutoplay() {
         val src = c.queue.source.value
-        if (!c.settings.current.autoplay || player.mediaItemCount == 0) return
+        if (!c.settings.current.autoplay || player.mediaItemCount == 0 || c.queue.followingHost) return
         if (src.kind != QueueKind.SINGLE && player.repeatMode != Player.REPEAT_MODE_OFF) return
         if (player.mediaItemCount - player.currentMediaItemIndex > 3 || c.queue.autoplayLoading) return
         val seed = src.seedId ?: player.getMediaItemAt(player.mediaItemCount - 1).mediaId.takeIf { it.isNotBlank() } ?: return
@@ -369,6 +387,8 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
      */
     suspend fun videoIdFor(song: Song): VideoLookup {
         if (song.isVideo) return VideoLookup(song.id)
+        // A saved video plays offline, so it's known without asking YouTube.
+        c.downloads.downloadedVideoId(song.id)?.let { return VideoLookup(it) }
         c.queue.counterparts[song.id]?.let { return VideoLookup(it) }
         if (song.id in c.queue.noVideo) return VideoLookup(null)
         val found = runCatching { withContext(Dispatchers.IO) { c.ytm.findMusicVideo(song) } }
@@ -392,6 +412,83 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         }
     }
 
+    /**
+     * Resolves the next song's stream while this one plays (the slow part of starting a song), so
+     * skipping ahead or moving on starts straight away. Downloaded songs don't need it.
+     */
+    private fun prefetchNext() {
+        val i = player.nextMediaItemIndex
+        if (i == C.INDEX_UNSET) return
+        val next = player.getMediaItemAt(i).mediaId.takeIf { it.isNotBlank() } ?: return
+        if (c.downloads.isDownloaded(next)) { armNextVideo(); return }
+        scope.launch(Dispatchers.IO) {
+            c.streams.prefetch(next)
+            // A live stream coming up is lined up as one, so it starts without a failed attempt first.
+            if (runCatching { c.streams.isLive(next) }.getOrDefault(false)) withContext(Dispatchers.Main) {
+                val at = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == next && it != player.currentMediaItemIndex }
+                val song = at?.let { player.getMediaItemAt(it).toSong() }
+                if (at != null && song != null && !song.isLive) {
+                    player.replaceMediaItem(at, song.copy(isLive = true).toMediaItem(player.getMediaItemAt(at).videoModeId?.let { song.id }))
+                }
+            }
+        }
+        armNextVideo()
+    }
+
+    /**
+     * The listener picked the video (and hasn't gone back to the song since). With "Keep playing videos"
+     * on, each new song then plays as its video too.
+     */
+    var videoWanted = false
+        set(v) {
+            field = v
+            if (v) armNextVideo() else disarmVideos()
+        }
+
+    private fun keepVideos() = videoWanted && c.settings.current.videoContinues
+
+    /**
+     * A new song started while videos are wanted. The next song is usually lined up as its video
+     * already ([armNextVideo]); if it wasn't ready (a quick skip), it switches here. Songs without a
+     * video just play as songs, quietly.
+     */
+    private fun continueVideo() {
+        if (!keepVideos()) return
+        val item = player.currentMediaItem ?: return
+        val song = item.toSong() ?: return
+        if (item.videoModeId != null) { watchVideo(song.id); return }
+        scope.launch { setVideoMode(true) }
+    }
+
+    /** Lines the next song up as its video, so moving on to it is seamless. */
+    private fun armNextVideo() {
+        if (!keepVideos()) return
+        val i = player.nextMediaItemIndex
+        if (i == C.INDEX_UNSET) return
+        val item = player.getMediaItemAt(i)
+        if (item.videoModeId != null) return
+        val song = item.toSong() ?: return
+        scope.launch {
+            val vid = if (song.isLive) song.id else videoIdFor(song).id ?: return@launch
+            val at = player.nextMediaItemIndex.takeIf { it != C.INDEX_UNSET } ?: return@launch
+            val next = player.getMediaItemAt(at)
+            if (!keepVideos() || next.mediaId != song.id || next.videoModeId != null) return@launch
+            val nextSong = next.toSong() ?: return@launch
+            if (failedVideos.remove(vid)) c.streams.invalidate(vid)
+            player.replaceMediaItem(at, nextSong.toMediaItem(if (nextSong.isLive) nextSong.id else vid))
+            if (!nextSong.isLive) prefetchVideo(nextSong, vid)
+        }
+    }
+
+    /** Back to songs: anything lined up as a video (other than what's playing) goes back to audio. */
+    private fun disarmVideos() {
+        for (i in 0 until player.mediaItemCount) {
+            if (i == player.currentMediaItemIndex) continue
+            val other = player.getMediaItemAt(i)
+            if (other.videoModeId != null) other.toSong()?.let { player.replaceMediaItem(i, it.toMediaItem(null)) }
+        }
+    }
+
     private val prefetched = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
     /** Videos that failed to play; their streams are re-resolved on the next try. */
     private val failedVideos = HashSet<String>()
@@ -402,6 +499,15 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         val item = player.currentMediaItem ?: return null
         val song = item.toSong() ?: return null
         if (enabled == (item.videoModeId != null)) return null
+        if (song.isLive) {
+            // The picture is already in the stream: same item, video track on (or off), no seeking about.
+            player.replaceMediaItem(idx, song.toMediaItem(if (enabled) song.id else null))
+            applyLiveVideo()
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            videoWatchdog?.cancel()
+            if (enabled) watchVideo(song.id)
+            return null
+        }
         val vid = if (enabled) {
             val found = videoIdFor(song)
             found.id ?: return if (found.lookupFailed) "Couldn't reach YouTube for the music video. Tap to try again." else "No music video for this song"
@@ -432,17 +538,35 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
                     kotlin.math.abs(player.currentPosition - pos) < 20_000
                 ) player.seekTo(player.currentPosition + lag)
             }
-            videoWatchdog = scope.launch {
-                // No picture after a fair wait: fall back to the song (the button stays usable).
-                delay(20_000)
-                val cur = player.currentMediaItem
-                if (cur?.mediaId == song.id && cur.videoModeId != null && player.videoSize.width <= 0) revertVideo(song.id)
-            }
+            watchVideo(song.id)
         }
         return null
     }
 
     private var videoWatchdog: Job? = null
+
+    /** No picture after a fair wait: fall back to the song (the button stays usable). */
+    private fun watchVideo(songId: String) {
+        videoWatchdog?.cancel()
+        videoWatchdog = scope.launch {
+            delay(20_000)
+            val cur = player.currentMediaItem
+            if (cur?.mediaId == songId && cur.videoModeId != null && player.videoSize.width <= 0) revertVideo(songId)
+        }
+    }
+
+    /**
+     * A live stream's HLS variants carry video and audio together, so in audio mode its video track is turned off
+     * (nothing to decode, and the player can take a lighter variant); other items leave video on for music videos.
+     */
+    private fun applyLiveVideo() {
+        val item = player.currentMediaItem
+        val off = item != null && item.toSong()?.isLive == true && item.videoModeId == null
+        val params = player.trackSelectionParameters
+        if ((C.TRACK_TYPE_VIDEO in params.disabledTrackTypes) != off) {
+            player.trackSelectionParameters = params.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, off).build()
+        }
+    }
 
     /** Switches back to the audio version after a video failure; the video can be tried again. */
     private suspend fun revertVideo(songId: String) {
@@ -450,6 +574,14 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         val idx = player.currentMediaItemIndex
         val current = player.currentMediaItem ?: return
         val song = current.toSong() ?: return
+        if (song.isLive) {
+            player.replaceMediaItem(idx, song.toMediaItem(null))
+            applyLiveVideo()
+            if (player.playbackState == Player.STATE_IDLE) { player.prepare(); player.play() }
+            c.player.onVideoFailed(songId)
+            c.player.reportError("The live video didn't load, so it's playing as audio. Tap the video button to try again.")
+            return
+        }
         current.videoModeId?.let { failedVideos += it; prefetched -= it }
         val lag = current.videoModeId?.takeIf { it != song.id }?.let { c.videoSync.cached(song.id, it) } ?: 0L
         val pos = (player.currentPosition - lag).coerceAtLeast(0)
@@ -850,3 +982,6 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         ) = update { copy(underruns = underruns + 1) }
     }
 }
+
+
+

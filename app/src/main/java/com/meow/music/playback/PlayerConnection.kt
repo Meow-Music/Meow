@@ -228,20 +228,22 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         if (songs.isEmpty()) return
         val token = ++playToken
         val tapped = songs[startIndex.coerceIn(0, songs.lastIndex)]
-        if (shuffle || !tapped.isVideo) { startQueue(songs, startIndex, source, shuffle); return }
-        // When playing a video item or song from YouTube sections, play its audio track in music mode.
-        // The Video button on the player controls remains available to switch to video on demand.
+        // Live streams play as they are: they have no "song version" to swap in.
+        if (shuffle || !tapped.isVideo || tapped.isLive) { startQueue(songs, startIndex, source, shuffle, null); return }
+        // A music video or live performance opens as the song it's of, already showing the video
+        // (the Song button then plays the track itself). With no song to match, the video plays as it is.
+        _showPlayer.tryEmit(Unit)
         scope.launch {
             val song = videoSongs[tapped.id] ?: kotlinx.coroutines.withTimeoutOrNull(4_000) {
                 runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { c.ytm.songForVideo(tapped) } }.getOrNull()
             }?.also { videoSongs[tapped.id] = it }
             if (token != playToken) return@launch
             val list = if (song == null) songs else songs.toMutableList().also { it[startIndex.coerceIn(0, songs.lastIndex)] = song }
-            startQueue(list, startIndex, source, false)
+            startQueue(list, startIndex, source, false, tapped.id)
         }
     }
 
-    private fun startQueue(songs: List<Song>, startIndex: Int, source: QueueSource, shuffle: Boolean) {
+    private fun startQueue(songs: List<Song>, startIndex: Int, source: QueueSource, shuffle: Boolean, startVideo: String?) {
         c.queue.source.value = source
         c.queue.autoplayContinuation = null
         c.queue.autoplayStart.value = -1
@@ -249,7 +251,7 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         withPlayer { p ->
             p.shuffleModeEnabled = shuffle
             val start = if (shuffle) songs.indices.random() else startIndex.coerceIn(0, songs.lastIndex)
-            p.setMediaItems(songs.map { it.toMediaItem() }, start, 0)
+            p.setMediaItems(songs.mapIndexed { i, s -> s.toMediaItem(if (i == start) startVideo else null) }, start, 0)
             if (shuffle) reshuffle(p)
             p.prepare()
             p.play()
@@ -269,6 +271,67 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
 
     fun addToQueue(song: Song) = withPlayer { p ->
         if (p.mediaItemCount == 0) playSingle(song) else p.addMediaItem(song.toMediaItem())
+    }
+
+    /** A whole album or playlist straight after the current song (or played, with nothing on). */
+    fun playNext(songs: List<Song>, source: QueueSource) {
+        if (songs.isEmpty()) return
+        withPlayer { p ->
+            if (p.mediaItemCount == 0) playQueue(songs, 0, source)
+            else p.addMediaItems(p.currentMediaItemIndex + 1, songs.map { it.toMediaItem() })
+        }
+    }
+
+    /** A whole album or playlist at the end of the queue (or played, with nothing on). */
+    fun addToQueue(songs: List<Song>, source: QueueSource) {
+        if (songs.isEmpty()) return
+        withPlayer { p ->
+            if (p.mediaItemCount == 0) playQueue(songs, 0, source) else p.addMediaItems(songs.map { it.toMediaItem() })
+        }
+    }
+
+    /** Listen Together: plays the host's queue ([songs], the current one first) from [positionMs], as songs, in order. */
+    fun follow(songs: List<Song>, positionMs: Long, title: String, playing: Boolean) {
+        if (songs.isEmpty()) return
+        ++playToken
+        c.queue.source.value = QueueSource(QueueKind.OTHER, title)
+        c.queue.autoplayContinuation = null
+        c.queue.autoplayStart.value = -1
+        ensureStarted()
+        withPlayer { p ->
+            p.shuffleModeEnabled = false
+            p.repeatMode = Player.REPEAT_MODE_OFF
+            p.setMediaItems(songs.map { it.toMediaItem() }, 0, positionMs.coerceAtLeast(0))
+            p.prepare()
+            p.playWhenReady = playing
+        }
+    }
+
+    /** Listen Together: makes what plays after the current song match the host's. */
+    fun replaceUpcoming(songs: List<Song>) = withPlayer { p ->
+        val idx = p.currentMediaItemIndex
+        val have = (idx + 1 until p.mediaItemCount).map { p.getMediaItemAt(it).mediaId }
+        if (have == songs.map { it.id }) return@withPlayer
+        if (idx + 1 < p.mediaItemCount) p.removeMediaItems(idx + 1, p.mediaItemCount)
+        p.addMediaItems(songs.map { it.toMediaItem() })
+    }
+
+    /** The listener wants it playing (it may still be buffering). */
+    val playWhenReady: Boolean get() = player?.playWhenReady ?: false
+
+    fun setPlaying(playing: Boolean) = withPlayer { p ->
+        if (playing) {
+            ensureStarted()
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            p.play()
+        } else p.pause()
+    }
+
+    /** Takes everything after the current song out of the queue. */
+    fun clearUpcoming() = withPlayer { p ->
+        val i = p.currentMediaItemIndex
+        if (i + 1 < p.mediaItemCount) p.removeMediaItems(i + 1, p.mediaItemCount)
+        c.queue.autoplayStart.value = -1
     }
 
     fun togglePlay() = withPlayer { p ->
@@ -319,6 +382,7 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     fun setVideoMode(enabled: Boolean) {
         val s = service ?: return
         _videoLoading.value = enabled
+        s.videoWanted = enabled
         scope.launch {
             s.setVideoMode(enabled)?.let { _errors.tryEmit(it); _videoLoading.value = false }
             if (!enabled) _videoLoading.value = false
@@ -332,7 +396,23 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
 
     suspend fun videoIdFor(song: Song): String? = service?.videoIdFor(song)?.id ?: if (song.isVideo) song.id else null
 
+    private val _sleepEndOfSong = MutableStateFlow(false)
+    /** The sleep timer is set to pause when the current song ends. */
+    val sleepEndOfSong: StateFlow<Boolean> = _sleepEndOfSong
+
+    fun setSleepEndOfSong(on: Boolean) {
+        _sleepEndOfSong.value = on
+        if (on) _sleepAt.value = 0
+        withPlayer { it.pauseAtEndOfMediaItems = on }
+    }
+
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        // Paused at the end of the song for the sleep timer: done; playing on from here goes on as usual.
+        if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM && _sleepEndOfSong.value) setSleepEndOfSong(false)
+    }
+
     fun setSleepTimer(minutes: Int) {
+        if (_sleepEndOfSong.value) setSleepEndOfSong(false)
         _sleepAt.value = if (minutes <= 0) 0 else System.currentTimeMillis() + minutes * 60_000L
         if (minutes > 0) scope.launch {
             val target = _sleepAt.value
@@ -355,6 +435,7 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         val item = p.currentMediaItem
         val song = item?.toSong()
         val changed = song?.id != _current.value?.id
+        val wasLive = _current.value?.isLive == true
         _current.value = song
         _isPlaying.value = p.isPlaying
         _buffering.value = p.playbackState == Player.STATE_BUFFERING
@@ -377,7 +458,7 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
             var i = tl.getNextWindowIndex(p.currentMediaItemIndex, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
             while (i != C.INDEX_UNSET && size < tl.windowCount) { add(i); i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled) }
         }
-        if (changed && song != null) checkVideo(song)
+        if (song != null && (changed || song.isLive != wasLive)) checkVideo(song)
         updateLyricTiming()
     }
 
@@ -393,8 +474,11 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
      */
     private fun checkVideo(song: Song) {
         _videoLoading.value = false
-        if (song.id in c.queue.noVideo) { _videoAvailable.value = false; return }
-        val known = if (song.isVideo) song.id else c.queue.counterparts[song.id]
+        // A live stream carries its own picture (the same HLS stream), so there's nothing to look up.
+        if (song.isLive) { _videoAvailable.value = true; return }
+        val saved = c.downloads.downloadedVideoId(song.id)
+        if (saved == null && song.id in c.queue.noVideo) { _videoAvailable.value = false; return }
+        val known = if (song.isVideo) song.id else saved ?: c.queue.counterparts[song.id]
         _videoAvailable.value = known != null
         val s = service ?: return
         if (known != null) { s.prefetchVideo(song, known); return }
@@ -414,3 +498,5 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         refresh()
     }
 }
+
+

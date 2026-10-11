@@ -267,8 +267,10 @@ abstract class MeowDatabase : RoomDatabase() {
 
     companion object {
         fun build(context: Context): MeowDatabase =
-            Room.databaseBuilder(context, MeowDatabase::class.java, "Meow.db")
+            Room.databaseBuilder(context, MeowDatabase::class.java, "meow.db")
                 .fallbackToDestructiveMigration(true)
                 .build()
     }
 }
+
+

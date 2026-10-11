@@ -74,7 +74,7 @@ class AppContainer(val app: Application) {
     val innerTube = InnerTube(http, { settings.current }, settings::setVisitorData)
     val ytm = YouTubeMusic(innerTube)
     val db = MeowDatabase.build(app)
-    val streams by lazy { StreamResolver(app, http, settings) }
+    val streams by lazy { StreamResolver(app, http, settings, innerTube) }
     val lyrics = LyricsRepository(http, db.lyrics(), ytm) { settings.current }.apply {
         choices = app.getSharedPreferences("lyrics_choice", android.content.Context.MODE_PRIVATE)
     }
@@ -110,7 +110,10 @@ class AppContainer(val app: Application) {
         SimpleCache(File(app.filesDir, "downloads"), NoOpCacheEvictor(), databaseProvider)
     }
 
+    val artistPrefs = com.meow.music.data.ArtistPrefs(app)
     val library = LibraryRepository(this)
+    /** Liked songs mirrored into a real YouTube Music playlist, when the listener turns that on. */
+    val likedPlaylist = com.meow.music.data.LikedPlaylist(this)
     val localLossless = com.meow.music.data.local.LocalLossless(app)
     val losslessSync by lazy { com.meow.music.download.LosslessSync(app, this) }
     // Started only after localLossless exists: a launch from an earlier init block can run on a
@@ -136,6 +139,8 @@ class AppContainer(val app: Application) {
     val updates by lazy { com.meow.music.data.UpdateChecker(app, http, scope) }
     val backup by lazy { com.meow.music.data.Backup(this) }
     val player = PlayerConnection(app, this)
+    /** Listen Together sessions on the local network. */
+    val together by lazy { com.meow.music.playback.together.Together(app, this) }
 
     private fun Cache.fullyCached(key: String, position: Long, length: Long): Boolean {
         val total = ContentMetadata.getContentLength(getContentMetadata(key))
@@ -146,7 +151,7 @@ class AppContainer(val app: Application) {
 
     private fun resolveAudio(spec: DataSpec, useCaches: Boolean): DataSpec {
         val uri = spec.uri
-        if (uri.scheme != "meow") return spec
+        if (uri.scheme != "Meow") return spec
         val id = uri.lastPathSegment ?: return spec
         if (useCaches) {
             if (downloadCache.fullyCached(id, spec.position, spec.length)) {
@@ -185,17 +190,49 @@ class AppContainer(val app: Application) {
         return ResolvingDataSource.Factory(downloadsFirst) { spec -> resolveAudio(spec, true) }
     }
 
-    fun videoDataSourceFactory(): DataSource.Factory =
-        ResolvingDataSource.Factory(OkHttpDataSource.Factory(streamHttp)) { spec ->
+    /** A music video's picture: from Downloads when it's saved there (key `video:<id>`), else streamed (never cached). */
+    fun videoDataSourceFactory(): DataSource.Factory {
+        val downloadsFirst = CacheDataSource.Factory()
+            .setCache(downloadCache)
+            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(streamHttp))
+            .setCacheWriteDataSinkFactory(null)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        return ResolvingDataSource.Factory(downloadsFirst) { spec ->
             val id = spec.uri.lastPathSegment
-            if (spec.uri.scheme != "meow" || id == null) spec else {
-                val s = try { streams.resolve(id, withVideo = true) } catch (e: Exception) { throw IOException(e.message, e) }
-                spec.buildUpon().setUri(s.videoUrl ?: throw IOException("No video stream available")).build()
+            if (spec.uri.scheme != "Meow" || id == null) spec
+            else if (downloadCache.fullyCached("video:$id", spec.position, spec.length)) spec.buildUpon().setKey("video:$id").build()
+            else spec.buildUpon().setUri(resolveVideoUrl(id)).setKey("video:$id").build()
+        }
+    }
+
+    private fun resolveVideoUrl(id: String): android.net.Uri {
+        val s = try { streams.resolve(id, withVideo = true) } catch (e: Exception) { throw IOException(e.message, e) }
+        return android.net.Uri.parse(s.videoUrl ?: throw IOException("No video stream available"))
+    }
+
+    /**
+     * Live streams: meow://live/<id> becomes the stream's HLS manifest; its playlists and segments are plain GETs
+     * (not the POST-and-range dance [YouTubeStreamInterceptor] does for files), and nothing is cached.
+     */
+    fun liveDataSourceFactory(): DataSource.Factory =
+        ResolvingDataSource.Factory(OkHttpDataSource.Factory(http).setUserAgent(com.meow.music.data.stream.DESKTOP_UA)) { spec ->
+            val id = spec.uri.lastPathSegment
+            if (spec.uri.scheme != "Meow" || id == null) spec else {
+                val url = try { streams.liveManifest(id) } catch (e: Exception) { throw IOException(e.message ?: "Couldn't load the live stream", e) }
+                streamDetails[id] = "Live" to streamDetails[id]?.second
+                onStreamResolved?.invoke(id)
+                spec.buildUpon().setUri(url).build()
             }
         }
 
+    /** Song downloads (meow://audio/<id>) and saved music videos' pictures (meow://video/<id>). */
     fun downloadDataSourceFactory(): DataSource.Factory =
-        ResolvingDataSource.Factory(OkHttpDataSource.Factory(streamHttp)) { spec -> resolveAudio(spec, false) }
+        ResolvingDataSource.Factory(OkHttpDataSource.Factory(streamHttp)) { spec ->
+            val id = spec.uri.lastPathSegment
+            if (spec.uri.scheme == "Meow" && spec.uri.authority == "video" && id != null) {
+                spec.buildUpon().setUri(resolveVideoUrl(id)).setKey("video:$id").build()
+            } else resolveAudio(spec, false)
+        }
 
     /** Animated-cover clips on the phone: recently played, and saved (from the player, by album, or with downloads). */
     val canvasStore by lazy { com.meow.music.data.canvas.CanvasStore(app, http, canvas, ytm, databaseProvider, scope) }
@@ -205,3 +242,6 @@ class AppContainer(val app: Application) {
         runCatching { playerCache.keys.toList().forEach { playerCache.removeResource(it) } }
     }
 }
+
+
+

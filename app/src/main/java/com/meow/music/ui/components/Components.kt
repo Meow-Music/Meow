@@ -1,6 +1,7 @@
 package com.meow.music.ui.components
 
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,9 +36,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Download
@@ -44,6 +48,8 @@ import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Explicit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -53,6 +59,8 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ThumbDown
+import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -127,31 +135,31 @@ fun Artwork(
     }
 }
 
+/**
+ * A shelf's heading, as Apple Music sets them (and the artist pages do): a quiet strapline over a
+ * bold title, with a chevron right after it when the title opens the whole shelf.
+ */
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, strapline: String? = null, onMore: (() -> Unit)? = null) {
     val ui = com.meow.music.ui.theme.LocalUi.current
     val scheme = MaterialTheme.colorScheme
-    Row(
+    Column(
         modifier.fillMaxWidth()
-            .padding(start = 20.dp, end = 12.dp, top = ui.gap(26.dp), bottom = ui.gap(10.dp)),
-        verticalAlignment = Alignment.Bottom,
+            .padding(start = 20.dp, end = 20.dp, top = ui.gap(26.dp), bottom = ui.gap(10.dp)),
     ) {
-        Column(Modifier.weight(1f)) {
-            if (!strapline.isNullOrBlank()) Text(
-                strapline, style = MaterialTheme.typography.labelMedium,
-                color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (onMore != null) Row(
-            Modifier.clip(CircleShape).clickable(onClick = onMore).padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        if (!strapline.isNullOrBlank()) Text(
+            strapline, style = MaterialTheme.typography.labelMedium,
+            color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            Modifier.clip(RoundedCornerShape(8.dp)).then(if (onMore != null) Modifier.clickable(onClickLabel = "See all", onClick = onMore) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("See all", style = MaterialTheme.typography.labelLarge, color = scheme.onSurfaceVariant)
-            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, "More", Modifier.size(20.dp), tint = scheme.onSurfaceVariant)
+            Text(
+                title, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (onMore != null) Icon(Icons.Rounded.ChevronRight, "See all", Modifier.size(26.dp), tint = scheme.onSurfaceVariant)
         }
     }
 }
@@ -167,11 +175,14 @@ fun SongRow(
     onLongClick: (() -> Unit)? = null,
     /** Marks one of an album's most-played tracks with a star, as Apple Music does. */
     starred: Boolean = false,
+    /** More rows for the song's menu (e.g. "Remove from this playlist"). */
+    extraActions: List<SheetItem> = emptyList(),
     onClick: () -> Unit,
 ) {
     val c = LocalContainer.current
     val liked by c.library.likedIds.collectAsState()
     val downloads by c.downloads.downloads.collectAsState()
+    val videos by c.downloads.videos.collectAsState()
     var menu by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val ui = com.meow.music.ui.theme.LocalUi.current
@@ -213,6 +224,9 @@ fun SongRow(
                 if (downloads[song.id]?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) {
                     Icon(Icons.Rounded.DownloadDone, null, Modifier.size(14.dp).padding(end = 3.dp), tint = scheme.primary)
                 }
+                if (videos[song.id]?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED) {
+                    Icon(Icons.Rounded.SmartDisplay, "Video saved", Modifier.size(14.dp).padding(end = 3.dp), tint = scheme.primary)
+                }
                 Text(
                     listOfNotNull(song.artistText, trailingInfo ?: song.album?.title).joinToString(" • "),
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -223,7 +237,7 @@ fun SongRow(
         if (song.id in liked) Icon(Icons.Rounded.Favorite, null, Modifier.size(15.dp), tint = scheme.primary)
         IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreHoriz, "More", tint = scheme.onSurfaceVariant.copy(alpha = 0.8f)) }
     }
-    if (menu) SongActionsSheet(song) { menu = false }
+    if (menu) SongActionsSheet(song, extraActions) { menu = false }
 }
 
 @Composable
@@ -323,7 +337,7 @@ fun LoadingState(modifier: Modifier = Modifier) {
 fun ErrorState(message: String, modifier: Modifier = Modifier, onRetry: (() -> Unit)? = null) {
     Column(modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
-            Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            Modifier.size(64.dp).clip(CircleShape).background(quietFill()),
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.CloudOff, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         Spacer(Modifier.height(14.dp))
@@ -361,13 +375,14 @@ fun MarqueeText(text: String, modifier: Modifier = Modifier, style: androidx.com
     Text(text, modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2500), style = style, color = color, maxLines = 1)
 }
 
-/** A search pill for filtering a list in place ("Search in playlist"), as you type. */
+/** A search pill for filtering a list in place ("Search in playlist"), as you type. [container] defaults to the theme's. */
 @Composable
-fun SearchField(query: String, hint: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+fun SearchField(query: String, hint: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, container: Color = Color.Unspecified) {
     val scheme = MaterialTheme.colorScheme
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     Row(
-        modifier.fillMaxWidth().height(46.dp).clip(com.meow.music.ui.theme.LocalUi.current.shape(23.dp)).background(scheme.surfaceContainerHigh).padding(start = 14.dp, end = 4.dp),
+        modifier.fillMaxWidth().height(46.dp).clip(com.meow.music.ui.theme.LocalUi.current.shape(23.dp))
+            .background(if (container != Color.Unspecified) container else quietFill()).padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Rounded.Search, null, Modifier.size(20.dp), tint = scheme.onSurfaceVariant)
@@ -403,6 +418,7 @@ fun MeowSheet(
     onDismiss: () -> Unit,
     containerColor: Color = androidx.compose.material3.BottomSheetDefaults.ContainerColor,
     contentColor: Color = androidx.compose.material3.contentColorFor(containerColor),
+    dragHandle: (@Composable () -> Unit)? = { androidx.compose.material3.BottomSheetDefaults.DragHandle() },
     content: @Composable androidx.compose.foundation.layout.ColumnScope.(close: (then: () -> Unit) -> Unit) -> Unit,
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -431,68 +447,105 @@ fun MeowSheet(
             scope.launch { try { state.hide() } finally { finish() } }
         }
     }
-    ModalBottomSheet(onDismissRequest = finish, sheetState = state, containerColor = containerColor, contentColor = contentColor) {
+    ModalBottomSheet(onDismissRequest = finish, sheetState = state, containerColor = containerColor, contentColor = contentColor, dragHandle = dragHandle) {
         content(close)
     }
 }
 
 // ---------------------------------------------------------------- Song actions
 
+/** "Download video": saves the song's music video (and the song) for offline; tapped again, takes the video back. */
 @Composable
-fun SongActionsSheet(song: Song, onDismiss: () -> Unit) {
+fun videoDownloadAction(song: Song, video: com.meow.music.download.VideoDownload?): ActionItem? {
+    if (song.isLive) return null
+    val c = LocalContainer.current
+    val done = video?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+    val failed = video?.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED
+    return ActionItem(
+        Icons.Rounded.SmartDisplay, if (done) "Remove downloaded video" else "Download video",
+        value = when {
+            done -> "Saved"
+            failed -> "Failed: tap to remove"
+            video != null -> "${video.percent.toInt().coerceAtLeast(0)}%"
+            else -> null
+        },
+        active = done, keepOpen = true,
+    ) { if (video != null) c.downloads.removeVideo(song.id) else c.downloads.downloadVideo(song) }
+}
+
+/**
+ * A song's menu, wherever it's held or its ⋯ is tapped: like and share at hand, the queue
+ * actions as tiles, then where to go. [extra] adds rows (e.g. "Remove from this playlist").
+ */
+@Composable
+fun SongActionsSheet(song: Song, extra: List<SheetItem> = emptyList(), onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val nav = LocalNavigator.current
     val context = LocalContext.current
     val liked by c.library.likedIds.collectAsState()
     val downloads by c.downloads.downloads.collectAsState()
+    val videos by c.downloads.videos.collectAsState()
+    val disliked by c.library.dislikedIds.collectAsState()
     var pickPlaylist by remember { mutableStateOf(false) }
+    var sharing by remember { mutableStateOf(false) }
     val isLiked = song.id in liked
     val dl = downloads[song.id]
+    val downloaded = dl?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
+    val together by c.together.state.collectAsState()
+    val guest = together as? com.meow.music.playback.together.TogetherState.Guest
+    fun toast(text: String) = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
 
-    // The playlist picker takes over from the sheet.
-    if (!pickPlaylist) MeowSheet(onDismiss = onDismiss) { hide ->
-      fun close(action: () -> Unit) = hide(action)
-      Column(Modifier.verticalScroll(rememberScrollState())) {
-        Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(song.thumbnail, Modifier.size(60.dp), com.meow.music.ui.theme.LocalUi.current.art, size = 226)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(song.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(song.artistText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    // The playlist picker and the share sheet take over from the sheet.
+    if (pickPlaylist) { PlaylistPicker(song) { pickPlaylist = false; onDismiss() }; return }
+    if (sharing) { ShareSheet(song.shareTarget()) { sharing = false; onDismiss() }; return }
+
+    // In someone's Listen Together session, songs go into their queue.
+    val quick = listOf(
+        if (guest != null) ActionItem(Icons.Rounded.Groups, "Play next") { c.together.suggest(song, next = true); toast("Sent to ${guest.hostName}") }
+        else ActionItem(Icons.Rounded.PlaylistPlay, "Play next") { c.player.playNext(song) },
+        if (guest != null) ActionItem(Icons.Rounded.GroupAdd, "Add to queue") { c.together.suggest(song, next = false); toast("Sent to ${guest.hostName}") }
+        else ActionItem(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { c.player.addToQueue(song) },
+        ActionItem(Icons.Rounded.Radio, "Radio") { c.player.playRadio(song) },
+        ActionItem(
+            if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, "Download",
+            value = when { downloaded -> "Downloaded"; dl != null -> "${dl.percent.toInt().coerceAtLeast(0)}%"; else -> null },
+            active = downloaded, keepOpen = true,
+        ) { if (dl != null) c.downloads.remove(song.id) else c.downloads.download(song) },
+    )
+    val go = listOfNotNull(
+        if (c.settings.current.isLoggedIn) ActionItem(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist", keepOpen = true) { pickPlaylist = true } else null,
+        song.album?.id?.let { id -> ActionItem(Icons.Rounded.Album, "Go to album", value = song.album?.title?.takeIf { it.length <= 22 }) { nav.go(Routes.album(id)) } },
+        song.artists.firstOrNull { it.id != null }?.let { a -> ActionItem(Icons.Rounded.Person, "Go to ${a.name}") { nav.go(Routes.artist(a.id!!)) } },
+    )
+    val more = extra.map { it.toAction() } + listOfNotNull(
+        videoDownloadAction(song, videos[song.id]),
+        if (song.id in disliked) ActionItem(Icons.Rounded.ThumbDown, "Not for me", active = true, keepOpen = true) { c.library.setDisliked(song, false) }
+        else ActionItem(Icons.Rounded.ThumbDownOffAlt, "Not for me") { c.library.setDisliked(song, true); toast("Got it — Meow will steer clear of this song") },
+    )
+
+    ActionSheet(song.thumbnail, onDismiss) { close ->
+        ActionHeader(
+            song.thumbnail, song.title,
+            listOfNotNull(song.artistText, formatDuration(song.durationSec).takeIf { it.isNotEmpty() }).joinToString(" · "),
+            placeholderIcon = Icons.Rounded.MusicNote,
+        ) {
+            SheetIconButton(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (isLiked) "Remove from liked songs" else "Add to liked songs", active = isLiked) {
+                c.library.toggleLike(song)
             }
-            if (song.durationSec > 0) Text(formatDuration(song.durationSec), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SheetIconButton(Icons.Rounded.Share, "Share") { sharing = true }
         }
-        HorizontalDivider(Modifier.padding(horizontal = 20.dp, vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-        SheetAction(Icons.Rounded.PlaylistPlay, "Play next") { close { c.player.playNext(song) } }
-        SheetAction(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { close { c.player.addToQueue(song) } }
-        SheetAction(Icons.Rounded.Radio, "Start radio") { close { c.player.playRadio(song) } }
-        SheetAction(if (isLiked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (isLiked) "Remove from liked songs" else "Add to liked songs") {
-            close { c.library.toggleLike(song) }
-        }
-        val downloaded = dl?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
-        SheetAction(if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, if (downloaded) "Remove download" else if (dl != null) "Downloading… ${dl.percent.toInt().coerceAtLeast(0)}%" else "Download") {
-            close { if (dl != null) c.downloads.remove(song.id) else c.downloads.download(song) }
-        }
-        if (c.settings.current.isLoggedIn) SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to playlist") { pickPlaylist = true }
-        song.album?.id?.let { id -> SheetAction(Icons.Rounded.Album, "Go to album") { close { nav.go(Routes.album(id)) } } }
-        song.artists.firstOrNull { it.id != null }?.let { a -> SheetAction(Icons.Rounded.Person, "Go to ${a.name}") { close { nav.go(Routes.artist(a.id!!)) } } }
-        SheetAction(Icons.Rounded.Share, "Share") {
-            close {
-                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=${song.id}")
-                }
-                context.startActivity(android.content.Intent.createChooser(send, "Share song"))
-            }
-        }
-        Spacer(Modifier.height(24.dp))
-      }
+        if (guest != null) Text(
+            "Adding to ${guest.hostName}'s session", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
+        )
+        QuickActions(quick) { runAction(it, close) }
+        ActionGroup(null, go) { runAction(it, close) }
+        ActionGroup(null, more) { runAction(it, close) }
     }
-    if (pickPlaylist) PlaylistPicker(song) { pickPlaylist = false; onDismiss() }
 }
 
-/** One extra row for [SongActionsSheet]. */
-data class SheetItem(val icon: ImageVector, val label: String, val onClick: () -> Unit)
+/** One extra row for [SongActionsSheet] or [PlayActionsSheet]; [danger] marks a delete. */
+data class SheetItem(val icon: ImageVector, val label: String, val danger: Boolean = false, val onClick: () -> Unit)
 
 @Composable
 fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
@@ -509,37 +562,91 @@ fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
+/** Adds [song] to one of the account's playlists, or to a new one. */
 @Composable
 fun PlaylistPicker(song: Song, onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val playlists by c.library.playlists.collectAsState()
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add to playlist") },
-        text = {
-            Column {
-                if (playlists.isEmpty()) Text("Sync your library first (Library → refresh).")
-                playlists.filterIsInstance<PlaylistItem>().filter { !it.id.startsWith("LM") && !it.isMix }.take(30).forEach { p ->
+    var creating by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    fun toast(text: String) = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+    if (creating) {
+        NewPlaylistDialog(onDismiss = { creating = false; onDismiss() }) { name, privacy ->
+            creating = false
+            onDismiss()
+            c.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                val id = runCatching { c.ytm.createPlaylist(name, listOf(song.id), privacy = privacy) }.getOrNull()
+                toast(if (id != null) "Added to $name" else "Couldn't make the playlist")
+                if (id != null) c.library.refreshCollections()
+            }
+        }
+        return
+    }
+    val mine = playlists.filterIsInstance<PlaylistItem>().filter { !it.id.startsWith("LM") && !it.isMix }
+    val shown = if (query.isBlank()) mine else mine.filter { it.title.contains(query.trim(), ignoreCase = true) }
+    MeowSheet(onDismiss = onDismiss) { close ->
+        Column(Modifier.padding(bottom = 20.dp)) {
+            Text("Add to playlist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(song.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 20.dp))
+            Spacer(Modifier.height(10.dp))
+            SheetAction(Icons.Rounded.Add, "New playlist") { creating = true }
+            if (mine.size > 8) SearchField(query, "Find a playlist", { query = it }, Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
+            if (mine.isEmpty()) Text(
+                "Your playlists show up here once your library has synced.", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(20.dp),
+            )
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 440.dp)) {
+                items(shown, key = { it.id }) { p ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                            scope.launch {
-                                val ok = runCatching { c.ytm.addToPlaylist(p.id, song.id) }.isSuccess
-                                android.widget.Toast.makeText(context, if (ok) "Added to ${p.title}" else "Couldn't add to ${p.title}", android.widget.Toast.LENGTH_SHORT).show()
-                                onDismiss()
+                        Modifier.fillMaxWidth().clickable {
+                            close {
+                                c.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                                    val ok = runCatching { c.ytm.addToPlaylist(p.id, song.id) }.isSuccess
+                                    toast(if (ok) "Added to ${p.title}" else "Couldn't add to ${p.title}")
+                                }
                             }
-                        }.padding(8.dp),
+                        }.padding(horizontal = 20.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Artwork(c.covers.art(p), Modifier.size(40.dp), RoundedCornerShape(8.dp), size = 120)
-                        Spacer(Modifier.width(12.dp))
-                        Text(p.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Artwork(c.covers.art(p), Modifier.size(46.dp), com.meow.music.ui.theme.LocalUi.current.smallArt, size = 120, placeholderIcon = Icons.AutoMirrored.Rounded.QueueMusic)
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(p.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (p.subtitle.isNotBlank()) Text(p.subtitle.removePrefix("Playlist • "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Name a new YouTube Music playlist and choose who can open it. */
+@Composable
+fun NewPlaylistDialog(onDismiss: () -> Unit, onCreate: (name: String, privacy: String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var privacy by remember { mutableStateOf("PRIVATE") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New playlist") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.material3.OutlinedTextField(name, { name = it.take(150) }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Segmented(listOf("PRIVATE", "UNLISTED", "PUBLIC"), privacy, { when (it) { "PRIVATE" -> "Private"; "UNLISTED" -> "Unlisted"; else -> "Public" } }) { privacy = it }
+                Text(
+                    when (privacy) {
+                        "PRIVATE" -> "Only you can see it."
+                        "UNLISTED" -> "Anyone with the link can open it, so it's easy to share."
+                        else -> "Anyone can find it."
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = { onCreate(name.trim(), privacy) }, enabled = name.isNotBlank()) { Text("Create") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -592,3 +699,4 @@ fun <T> SortBar(count: String, options: List<T>, selected: T, label: (T) -> Stri
         SortButton(options, selected, label, onSelect = onSelect)
     }
 }
+

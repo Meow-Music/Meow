@@ -5,7 +5,6 @@ import android.webkit.CookieManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,7 +37,6 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.SpaceDashboard
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Login
@@ -79,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.ColorUtils
 import coil3.compose.AsyncImage
 import com.meow.music.data.local.LocalLossless
+import com.meow.music.R
 import com.meow.music.data.prefs.AppSettings
 import com.meow.music.data.prefs.AudioQuality
 import com.meow.music.data.prefs.CarLyricsStyle
@@ -108,7 +107,9 @@ import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.Routes
 import com.meow.music.ui.components.MeowChip
 import com.meow.music.ui.components.SubPage
+import com.meow.music.ui.components.featurePane
 import com.meow.music.ui.theme.AccentSwatches
+import com.meow.music.ui.theme.isNeutralSeed
 import com.meow.music.ui.theme.AppFonts
 import com.meow.music.ui.theme.LocalAppSettings
 import com.meow.music.ui.theme.LocalContainer
@@ -195,6 +196,11 @@ fun SettingsScreen(bottomPadding: Dp, section: SettingsSection? = null) {
                 Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
                     AboutSection()
                     BackupGroup()
+                    Group("About") {
+                        Item("Meow ${com.meow.music.BuildConfig.VERSION_NAME}", "Ad-free, high-fidelity native music client. Not affiliated with Google or YouTube.", onClick = {})
+                        Item("Your data stays here", "History, Replay and settings live only on this phone. Meow has no server.", onClick = {})
+                        CheckForUpdates()
+                    }
                 }
             }
         }
@@ -242,27 +248,29 @@ private fun AccountCard() {
     val nav = LocalNavigator.current
     val ui = LocalUi.current
     val scheme = MaterialTheme.colorScheme
+    // A pane of frosted glass on a frosted page, the accent's gradient otherwise.
+    val frosted = com.meow.music.ui.components.LocalFrosted.current
+    val ink = com.meow.music.ui.components.featureInk()
     Row(
-        Modifier.fillMaxWidth().clip(ui.card)
-            .background(Brush.linearGradient(listOf(scheme.primaryContainer, scheme.tertiaryContainer.copy(alpha = 0.8f))))
+        Modifier.fillMaxWidth().featurePane(ui.card)
             .then(if (s.isLoggedIn) Modifier else Modifier.clickable { nav.go(Routes.LOGIN) })
             .padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(56.dp).clip(CircleShape).background(scheme.surface.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(56.dp).clip(CircleShape).background(if (frosted) com.meow.music.ui.components.frostFill(1.6f) else scheme.surface.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
             if (s.isLoggedIn && s.accountAvatar.isNotBlank()) AsyncImage(s.accountAvatar, null, Modifier.fillMaxSize())
-            else Icon(if (s.isLoggedIn) Icons.Rounded.Person else Icons.Rounded.Login, null, tint = scheme.onPrimaryContainer)
+            else Icon(if (s.isLoggedIn) Icons.Rounded.Person else Icons.Rounded.Login, null, tint = if (frosted) scheme.primary else ink)
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 if (s.isLoggedIn) s.accountName.ifBlank { "YouTube Music" } else "Sign in to YouTube Music",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = scheme.onPrimaryContainer,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = ink,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             Text(
                 if (s.isLoggedIn) s.accountEmail.ifBlank { "Signed in" } else "Sync likes, playlists, history and recommendations",
-                style = MaterialTheme.typography.bodySmall, color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
+                style = MaterialTheme.typography.bodySmall, color = ink.copy(alpha = 0.75f),
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -270,7 +278,7 @@ private fun AccountCard() {
             c.settings.logout()
             CookieManager.getInstance().removeAllCookies(null)
         }) { Icon(Icons.AutoMirrored.Rounded.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Sign out") }
-        else Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = scheme.onPrimaryContainer)
+        else Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = ink)
     }
 }
 
@@ -300,7 +308,6 @@ private fun androidx.compose.foundation.lazy.LazyListScope.appearance() {
         }
     }
     item(key = "type") { TypeSettings() }
-    item(key = "app_icon") { AppIconSettings() }
     item(key = "shape") { ShapeSettings() }
     item(key = "backgrounds") {
         val s = LocalAppSettings.current
@@ -325,8 +332,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.appearance() {
                 Chips(GlassKind.entries, s.glassKind, { it.label }) { prefs.setGlassKind(it) }
             }
             Toggle("Frosted Glass", "Soft blurred glass instead, without the refraction", s.frostedGlass) { prefs.setFrostedGlass(it) }
+            Toggle("Frosted pages", "Artist, album and playlist pages sit on frosted glass made from their picture, and take its colour; Home, Library, Search and Settings on frost from what's playing", s.frostedPages) { prefs.setFrostedPages(it) }
         }
     }
+    item(key = "app_icon") { AppIconSettings() }
     item(key = "motion") {
         val s = LocalAppSettings.current
         val prefs = LocalContainer.current.settings
@@ -360,7 +369,7 @@ private fun FontPicker(current: FontChoice, onPick: (FontChoice) -> Unit) {
             val on = f == current
             Column(
                 Modifier.width(96.dp).clip(ui.tile)
-                    .background(if (on) scheme.primaryContainer else scheme.surfaceContainerHigh)
+                    .background(if (on) scheme.primaryContainer else com.meow.music.ui.components.quietFill())
                     .border(if (on) 2.dp else 0.dp, if (on) scheme.primary else Color.Transparent, ui.tile)
                     .clickable { onPick(f) }.padding(10.dp),
             ) {
@@ -491,6 +500,13 @@ private fun PlayerSettings() {
         Group("Look") {
             Label("Background")
             Chips(PlayerBackground.entries, s.playerBackground, { it.label }) { prefs.setPlayerBackground(it) }
+            if (s.playerBackground == PlayerBackground.APPEARANCE) Note(
+                "The background picked for Home in Appearance → Backgrounds, in its dark version" +
+                    if (s.fullBleedArtwork) ". Turn off Full-bleed artwork below to see more of it" else ""
+            )
+            if (s.playerBackground == PlayerBackground.BLUR || s.playerBackground == PlayerBackground.APPEARANCE) SliderSetting(
+                "Show background", s.playerBackdropShow, 0f..1f, { if (it < 0.2f) "Subtle" else if (it < 0.7f) "Balanced" else "Vivid" },
+            ) { prefs.setPlayerBackdropShow(it) }
             Label("Controls")
             Chips(TransportStyle.entries, s.transportStyle, { it.label }) { prefs.setTransportStyle(it) }
             Label("Seek bar")
@@ -573,6 +589,7 @@ private fun SoundPage() {
     Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
         Group("Playback") {
             Toggle("Autoplay", "When a song, album or playlist ends, keep going with similar music", s.autoplay) { prefs.setAutoplay(it) }
+            Toggle("Keep playing videos", "While a music video is showing, the next song plays as its video too, until you switch back to Song", s.videoContinues) { prefs.setVideoContinues(it) }
             Toggle("Skip silence", "Trims silent gaps at the start and end of songs", s.skipSilence) { prefs.setSkipSilence(it) }
         }
         Group("Quality") {
@@ -626,7 +643,7 @@ private fun LyricsSettings() {
     Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
         Group("Display") {
             Toggle("Prefer synced lyrics", "Skip plain-text results when a later source has time-synced lines", s.preferSynced) { prefs.setPreferSynced(it) }
-            Toggle("Skip censored lyrics", "Pass over a source that stars out swear words (f**k) when another has the full lyrics", s.skipCensored) { prefs.setSkipCensored(it) }
+            Toggle("Uncensor lyrics", "Fill starred-out swear words (f**k) back in from Genius, keeping word timings, and pass over a source that still stars them out", s.skipCensored) { prefs.setSkipCensored(it) }
             Toggle("Focus blur", "Lines further from the one being sung fall out of focus", s.lyricsBlur) { prefs.setLyricsBlur(it) }
             Label("Alignment")
             Chips(LyricsAlign.entries, s.lyricsAlign, { it.label }) { prefs.setLyricsAlign(it) }
@@ -752,13 +769,18 @@ private fun AccentPicker(current: Int, onPick: (Int) -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             AccentSwatches.forEach { col ->
-                val sel = col.toArgb() == current
+                val neutral = isNeutralSeed(col.toArgb())
+                // The old white (light grey) counts as the white swatch.
+                val sel = col.toArgb() == current || (neutral && isNeutralSeed(current))
                 Box(
                     Modifier.size(38.dp).clip(CircleShape).background(col)
-                        .border(if (sel) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        .border(
+                            if (sel) 3.dp else if (neutral) 1.dp else 0.dp,
+                            if (sel) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant, CircleShape,
+                        )
                         .clickable { onPick(col.toArgb()) },
                     contentAlignment = Alignment.Center,
-                ) { if (sel) Icon(Icons.Rounded.Check, null, tint = Color.White, modifier = Modifier.size(18.dp)) }
+                ) { if (sel) Icon(Icons.Rounded.Check, null, tint = if (neutral) Color.Black else Color.White, modifier = Modifier.size(18.dp)) }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -1099,3 +1121,4 @@ private fun AboutSection() {
         }
     }
 }
+

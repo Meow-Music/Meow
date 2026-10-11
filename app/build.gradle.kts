@@ -15,8 +15,8 @@ android {
         applicationId = "com.meow.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.0.2"
+        versionCode = 13
+        versionName = "1.0.3"
         vectorDrawables { useSupportLibrary = true }
         // Optional: `lastfm.apiKey=…` in local.properties lets genre detection ask Last.fm too.
         val localProps = Properties().apply {
@@ -25,7 +25,7 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"${localProps.getProperty("lastfm.apiKey", "")}\"")
     }
 
-    // Releases are signed with the key in key.properties or keystore.properties.
+    // Releases are signed with the key in keystore.properties (gitignored, with the .jks beside it).
     // Without it — or with -PdebugSign — they fall back to the debug key so anyone can build.
     val keyProps = Properties().apply {
         val keyFile = rootProject.file("key.properties").takeIf { it.exists() }
@@ -43,6 +43,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // `-PsideBySide`: a debug Meow that installs next to the real one (for trying changes on your own phone).
+            if (project.hasProperty("sideBySide")) applicationIdSuffix = ".dev"
+        }
         release {
             // Kept unminified: NewPipeExtractor + Rhino rely on reflection.
             isMinifyEnabled = false
@@ -133,6 +137,8 @@ dependencies {
     implementation("dev.chrisbanes.haze:haze-glass:2.0.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Renders the backgrounds to PNGs on the PC (BackdropRenderTest), with Robolectric's real graphics.
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }
 
 tasks.withType<Test>().configureEach {
@@ -142,3 +148,5 @@ tasks.withType<Test>().configureEach {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
 }
+
+

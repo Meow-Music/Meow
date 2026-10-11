@@ -40,3 +40,4 @@ class SmartDownloadTest {
         assertTrue(rec > s["stranger"]!!)
     }
 }
+

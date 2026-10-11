@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -55,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import com.meow.music.data.prefs.TitleSize
 import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.theme.GlassSurface
+import com.meow.music.ui.theme.LocalIsDark
 import com.meow.music.ui.theme.LocalUi
 
 /** The style for big page titles, following the Title size setting. */
@@ -89,19 +92,40 @@ fun ScreenHeader(
     }
 }
 
-/** A round, quiet action for headers: tonal by default, or glass when it floats over content. */
+/**
+ * The disc behind a button that floats over a page (photos, artwork, scrolling content). Haze can't
+ * blur inside the NavHost, so it carries its own near-solid fill: dark glass with white ink in dark
+ * mode, milky white with near-black ink in light mode, legible over anything.
+ */
+@Composable
+fun FloatingDisc(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.(ink: Color) -> Unit) {
+    val dark = LocalIsDark.current
+    val fill = if (dark) Color(0xFF1B1B1F).copy(alpha = 0.78f) else Color.White.copy(alpha = 0.90f)
+    val ink = if (dark) Color.White else Color(0xFF111114)
+    Box(
+        modifier.size(42.dp)
+            .shadow(6.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.3f))
+            .clip(CircleShape).background(fill)
+            .border(0.7.dp, if (dark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.08f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) { content(ink) }
+}
+
+/** A round, quiet action for headers: tonal by default, or a floating disc ([FloatingDisc]) when it floats over content. */
 @Composable
 fun RoundAction(icon: ImageVector, description: String, modifier: Modifier = Modifier, glass: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f)
     if (glass) {
-        GlassSurface(modifier.size(42.dp), shape = RoundedCornerShape(50), elevation = 6.dp) {
+        FloatingDisc(modifier) { ink ->
             Box(Modifier.fillMaxSize().clickable(enabled = enabled, onClickLabel = description, onClick = onClick), contentAlignment = Alignment.Center) {
-                Icon(icon, description, Modifier.size(22.dp), tint = tint)
+                Icon(icon, description, Modifier.size(22.dp), tint = ink.copy(alpha = if (enabled) 1f else 0.38f))
             }
         }
     } else {
+        // On a frosted page: a round of frosted glass, like the artist page's buttons.
+        val edge = if (LocalFrosted.current) Modifier.border(0.7.dp, Color.White.copy(alpha = if (LocalIsDark.current) 0.14f else 0.6f), CircleShape) else Modifier
         Box(
-            modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            modifier.size(42.dp).clip(CircleShape).background(quietFill()).then(edge)
                 .clickable(enabled = enabled, onClickLabel = description, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, description, Modifier.size(22.dp), tint = tint) }
@@ -130,6 +154,9 @@ fun SubPage(
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val scrolled by remember(state) { derivedStateOf { state.firstVisibleItemIndex > 0 || state.firstVisibleItemScrollOffset > 60 } }
     val bar by animateFloatAsState(if (scrolled) 1f else 0f, tween(220), label = "bar")
+    // On a frosted page the content melts away under the bar into the page's own backdrop, as
+    // on the artist and album pages; elsewhere the bar turns solid.
+    val melts = LocalFrosted.current && LocalPageBackdrop.current != null
     Box(modifier.fillMaxSize()) {
         LazyColumn(
             state = state,
@@ -145,9 +172,10 @@ fun SubPage(
             }
             content()
         }
+        if (melts) TopScrollEdge({ bar }, 60.dp)
         Box(
             Modifier.fillMaxWidth()
-                .background(scheme.surface.copy(alpha = 0.92f * bar))
+                .background(if (melts) Color.Transparent else scheme.surface.copy(alpha = 0.92f * bar))
                 .statusBarsPadding()
                 .height(60.dp),
         ) {
@@ -164,12 +192,12 @@ fun SubPage(
     }
 }
 
-/** A pill-shaped choice: solid when picked, quiet otherwise. */
+/** A pill-shaped choice: solid when picked, quiet otherwise ([idle], or the theme's container colour). */
 @Composable
-fun MeowChip(selected: Boolean, onClick: () -> Unit, label: String, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+fun MeowChip(selected: Boolean, onClick: () -> Unit, label: String, modifier: Modifier = Modifier, icon: ImageVector? = null, idle: Color = Color.Unspecified) {
     val scheme = MaterialTheme.colorScheme
     val ui = LocalUi.current
-    val bg by animateColorAsState(if (selected) scheme.onSurface else scheme.surfaceContainerHigh, tween(180), label = "chipBg")
+    val bg by animateColorAsState(if (selected) scheme.onSurface else if (idle != Color.Unspecified) idle else quietFill(), tween(180), label = "chipBg")
     val fg by animateColorAsState(if (selected) scheme.surface else scheme.onSurface, tween(180), label = "chipFg")
     Row(
         modifier.height(36.dp).clip(ui.shape(18.dp)).background(bg).clickable(onClick = onClick).padding(horizontal = 14.dp),
@@ -200,13 +228,17 @@ fun <T> ChipRow(
 fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, modifier: Modifier = Modifier, onSelect: (T) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val ui = LocalUi.current
+    val frosted = LocalFrosted.current
+    val dark = LocalIsDark.current
+    val picked = if (frosted) (if (dark) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.95f)) else scheme.surface
     Row(
-        modifier.fillMaxWidth().height(42.dp).clip(ui.shape(21.dp)).background(scheme.surfaceContainerHighest.copy(alpha = 0.7f)).padding(3.dp),
+        modifier.fillMaxWidth().height(42.dp).clip(ui.shape(21.dp))
+            .background(if (frosted) frostFill(1.2f) else scheme.surfaceContainerHighest.copy(alpha = 0.7f)).padding(3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEach { o ->
             val on = o == selected
-            val bg by animateColorAsState(if (on) scheme.surface else Color.Transparent, tween(180), label = "seg")
+            val bg by animateColorAsState(if (on) picked else Color.Transparent, tween(180), label = "seg")
             Box(
                 Modifier.weight(1f).fillMaxHeight().clip(ui.shape(18.dp)).background(bg).clickable { onSelect(o) },
                 contentAlignment = Alignment.Center,
@@ -239,3 +271,5 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Material
         color = color, fontWeight = FontWeight.SemiBold, maxLines = 1,
     )
 }
+
+

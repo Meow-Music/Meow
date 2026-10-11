@@ -54,3 +54,5 @@ fun SoundSettings(onOpenEq: () -> Unit) {
         onClick = onOpenEq,
     )
 }
+
+

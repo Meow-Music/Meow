@@ -44,13 +44,12 @@ enum class LyricsSource(val label: String) {
     UNISON("Unison"),
     YTMUSIC("YouTube Music"),
     GENIUS("Genius"),
-    LYRICSOVH("Lyrics.ovh"),
 }
 
 /** Tiles in Home's greeting section. */
 enum class HomeShortcut(val label: String) {
     LIKED("Liked songs"), DOWNLOADS("Downloads"), REPLAY("Replay"), LIBRARY("Library"),
-    MOODS("Moods & genres"), SEARCH("Search"), EQUALIZER("Equalizer"),
+    MOODS("Moods & genres"), SEARCH("Search"), EQUALIZER("Equalizer"), TOGETHER("Listen together"),
 }
 
 /** A playlist pinned to Home's greeting tiles. */
@@ -86,7 +85,12 @@ enum class MiniPlayerStyle(val label: String) { CARD("Card"), SLIM("Slim"), PILL
 enum class MiniProgress(val label: String) { LINE("Line"), FILL("Fill"), NONE("None") }
 
 /** What's behind the full player. */
-enum class PlayerBackground(val label: String) { MESH("Colour mesh"), BLUR("Blurred cover"), THEME("Theme"), BLACK("Black") }
+enum class PlayerBackground(val label: String) {
+    MESH("Colour mesh"), BLUR("Blurred cover"),
+    /** The background picked for Home in Appearance → Backgrounds, in its dark version. */
+    APPEARANCE("Your background"),
+    THEME("Theme"), BLACK("Black"),
+}
 enum class TransportStyle(val label: String) { GLYPHS("Classic"), BUTTON("Play button"), OUTLINE("Rings") }
 enum class ScrubberStyle(val label: String) { HAIRLINE("Hairline"), BOLD("Bold"), THUMB("Thumb") }
 enum class LyricsAlign(val label: String) { START("Left"), CENTER("Centre") }
@@ -153,7 +157,7 @@ object HomeSections {
 /** The order lyric sources are tried in on a fresh install. */
 val defaultLyricsOrder = listOf(
     LyricsSource.KUGOU, LyricsSource.QQ, LyricsSource.APPLE, LyricsSource.LYRICSPLUS, LyricsSource.BINI, LyricsSource.YTMUSIC,
-    LyricsSource.NETEASE, LyricsSource.LRCLIB, LyricsSource.UNISON, LyricsSource.GENIUS, LyricsSource.LYRICSOVH,
+    LyricsSource.NETEASE, LyricsSource.LRCLIB, LyricsSource.UNISON, LyricsSource.GENIUS,
 )
 
 data class AppSettings(
@@ -207,10 +211,12 @@ data class AppSettings(
     val audioQuality: AudioQuality = AudioQuality.HIGH,
     val cellularQuality: AudioQuality = AudioQuality.HIGH,
     val autoplay: Boolean = true,
+    /** With a music video showing, the next song plays as its video too (until switched back to the song). */
+    val videoContinues: Boolean = false,
     /** Lossless playback: always the best stream, hi-res output, and the lossless add-on when it's on. */
     val lossless: Boolean = true,
     /** The lossless add-on: play matching FLAC/WAV/AIFF files on the phone instead of the stream. */
-    val losslessLocal: Boolean = true,
+    val losslessLocal: Boolean = false,
     val normalize: Boolean = true,
     val skipSilence: Boolean = true,
     val videoMaxHeight: Int = 1080,
@@ -220,7 +226,7 @@ data class AppSettings(
     val downloadLikes: Boolean = true,
     val smartDownloads: Boolean = true,
     /** Space smart downloads may fill, in GB. */
-    val smartDownloadGb: Float = 15f,
+    val smartDownloadGb: Float = 1f,
     // Audio effects
     val eq: EqSettings = EqSettings(bassBoost = 32, virtualizer = 6, loudnessGainMb = 39),
     /** Meow Spatial, the software spatializer. */
@@ -231,8 +237,8 @@ data class AppSettings(
     val autoAddSections: Boolean = true,
     /** Replay shows listening time as hours and minutes (20h 4m) instead of minutes (1,204 min). */
     val replayHours: Boolean = true,
-    /** Home's headline; blank means good morning / afternoon / evening. */
     val greetingEnable: Boolean = true,
+    /** Home's headline; blank means good morning / afternoon / evening. */
     val greetingText: String = "",
     val greetingShowName: Boolean = true,
     val homeShortcuts: List<HomeShortcut> = listOf(HomeShortcut.LIKED, HomeShortcut.DOWNLOADS, HomeShortcut.REPLAY),
@@ -240,17 +246,15 @@ data class AppSettings(
     val homeRecentTiles: Int = 3,
     /** Playlists shown as tiles after the shortcuts. */
     val homePlaylists: List<PinnedPlaylist> = emptyList(),
-    val homeCustomizeButton: Boolean = false,
+    val homeCustomizeButton: Boolean = true,
     // Interface
     val fontChoice: FontChoice = FontChoice.ROUNDED,
     val textScale: Float = 1f,
     val corners: Corners = Corners.EXTRA,
-    val uiDensity: UiDensity = UiDensity.ROOMY,
-    val titleSize: TitleSize = TitleSize.MEDIUM,
+    val uiDensity: UiDensity = UiDensity.COMFORTABLE,
+    val titleSize: TitleSize = TitleSize.LARGE,
     val cardSize: CardSize = CardSize.MEDIUM,
     val reduceMotion: Boolean = false,
-    val appIconType: AppIconType = AppIconType.DEFAULT,
-    val customIconPath: String = "",
     // Navigation
     val navStyle: NavBarStyle = NavBarStyle.FLOATING,
     val navLabels: NavLabels = NavLabels.ALWAYS,
@@ -262,9 +266,11 @@ data class AppSettings(
     val miniProgress: MiniProgress = MiniProgress.FILL,
     // Player look
     val playerBackground: PlayerBackground = PlayerBackground.MESH,
+    /** 0..1: how much of the player's background shows through its darkening (blurred cover and your background). */
+    val playerBackdropShow: Float = 0.35f,
     val playerArtCorners: Int = 8,
     val transportStyle: TransportStyle = TransportStyle.BUTTON,
-    val scrubberStyle: ScrubberStyle = ScrubberStyle.BOLD,
+    val scrubberStyle: ScrubberStyle = ScrubberStyle.HAIRLINE,
     val artShrinkOnPause: Boolean = true,
     val showOutputDevice: Boolean = true,
     val lyricsAlign: LyricsAlign = LyricsAlign.START,
@@ -273,7 +279,10 @@ data class AppSettings(
     val libraryStartTab: String = "PLAYLISTS",
     /** Playlist pages open with their picture edge to edge, like an artist page. */
     val playlistHeroCover: Boolean = true,
+    /** Artist, album and playlist pages sit on frosted glass made from their picture (Apple Music's look). */
+    val frostedPages: Boolean = true,
     val replayThemeColors: Boolean = false,
+    val appIconType: AppIconType = AppIconType.DEFAULT,
 ) {
     val isLoggedIn: Boolean get() = cookie.contains("SAPISID")
 }
@@ -320,6 +329,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val audioQuality = stringPreferencesKey("audio_quality")
         val cellularQuality = stringPreferencesKey("cellular_quality")
         val autoplay = booleanPreferencesKey("autoplay")
+        val videoContinues = booleanPreferencesKey("video_continues")
         val lossless = booleanPreferencesKey("lossless")
         val losslessLocal = booleanPreferencesKey("lossless_local")
         val normalize = booleanPreferencesKey("normalize")
@@ -342,14 +352,13 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val homePlaylists = stringPreferencesKey("home_playlists")
         val homeCustomizeButton = booleanPreferencesKey("home_customize_button")
         val fontChoice = stringPreferencesKey("font_choice")
+        val appIconType = stringPreferencesKey("app_icon_type")
         val textScale = floatPreferencesKey("text_scale")
         val corners = stringPreferencesKey("corners")
         val uiDensity = stringPreferencesKey("ui_density")
         val titleSize = stringPreferencesKey("title_size")
         val cardSize = stringPreferencesKey("card_size")
         val reduceMotion = booleanPreferencesKey("reduce_motion")
-        val appIconType = stringPreferencesKey("app_icon_type")
-        val customIconPath = stringPreferencesKey("custom_icon_path")
         val navStyle = stringPreferencesKey("nav_style")
         val navLabels = stringPreferencesKey("nav_labels")
         val navHideOnScroll = booleanPreferencesKey("nav_hide_on_scroll")
@@ -359,6 +368,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val miniSkipButtons = booleanPreferencesKey("mini_skip_buttons")
         val miniProgress = stringPreferencesKey("mini_progress")
         val playerBackground = stringPreferencesKey("player_background")
+        val playerBackdropShow = floatPreferencesKey("player_backdrop_show")
         val playerArtCorners = intPreferencesKey("player_art_corners")
         val transportStyle = stringPreferencesKey("transport_style")
         val scrubberStyle = stringPreferencesKey("scrubber_style")
@@ -368,14 +378,15 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val libraryView = stringPreferencesKey("library_view")
         val libraryStartTab = stringPreferencesKey("library_start_tab")
         val playlistHeroCover = booleanPreferencesKey("playlist_hero_cover")
+        val frostedPages = booleanPreferencesKey("frosted_pages")
         val replayThemeColors = booleanPreferencesKey("replay_theme_colors")
 
         /** Everything the "Reset look" button puts back. */
         val look: List<Preferences.Key<*>> by lazy {
             listOf(
                 fontChoice, textScale, corners, uiDensity, titleSize, cardSize, reduceMotion, navStyle, navLabels, navHideOnScroll,
-                navTabs, startTab, miniPlayerStyle, miniSkipButtons, miniProgress, playerBackground, playerArtCorners, transportStyle,
-                scrubberStyle, artShrinkOnPause, showOutputDevice, lyricsAlign, libraryView, playlistHeroCover, replayThemeColors,
+                navTabs, startTab, miniPlayerStyle, miniSkipButtons, miniProgress, playerBackground, playerBackdropShow, playerArtCorners, transportStyle,
+                scrubberStyle, artShrinkOnPause, showOutputDevice, lyricsAlign, libraryView, playlistHeroCover, frostedPages, replayThemeColors,
             )
         }
     }
@@ -431,6 +442,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             audioQuality = p.enum(K.audioQuality, d.audioQuality),
             cellularQuality = p.enum(K.cellularQuality, d.cellularQuality),
             autoplay = p[K.autoplay] ?: d.autoplay,
+            videoContinues = p[K.videoContinues] ?: d.videoContinues,
             lossless = p[K.lossless] ?: d.lossless,
             losslessLocal = p[K.losslessLocal] ?: d.losslessLocal,
             normalize = p[K.normalize] ?: d.normalize,
@@ -449,6 +461,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             } ?: d.homeLayout,
             autoAddSections = p[K.autoAddSections] ?: d.autoAddSections,
             replayHours = p[K.replayHours] ?: d.replayHours,
+            greetingEnable = p[K.greetingEnable] ?: d.greetingEnable,
             greetingText = p[K.greetingText] ?: d.greetingText,
             greetingShowName = p[K.greetingShowName] ?: d.greetingShowName,
             homeShortcuts = p[K.homeShortcuts]?.let { v ->
@@ -464,8 +477,6 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             titleSize = p.enum(K.titleSize, d.titleSize),
             cardSize = p.enum(K.cardSize, d.cardSize),
             reduceMotion = p[K.reduceMotion] ?: d.reduceMotion,
-            appIconType = p.enum(K.appIconType, d.appIconType),
-            customIconPath = p[K.customIconPath] ?: d.customIconPath,
             navStyle = p.enum(K.navStyle, d.navStyle),
             navLabels = p.enum(K.navLabels, d.navLabels),
             navHideOnScroll = p[K.navHideOnScroll] ?: d.navHideOnScroll,
@@ -475,6 +486,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             miniSkipButtons = p[K.miniSkipButtons] ?: d.miniSkipButtons,
             miniProgress = p.enum(K.miniProgress, d.miniProgress),
             playerBackground = p.enum(K.playerBackground, d.playerBackground),
+            playerBackdropShow = p[K.playerBackdropShow] ?: d.playerBackdropShow,
             playerArtCorners = p[K.playerArtCorners] ?: d.playerArtCorners,
             transportStyle = p.enum(K.transportStyle, d.transportStyle),
             scrubberStyle = p.enum(K.scrubberStyle, d.scrubberStyle),
@@ -484,7 +496,9 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             libraryView = p.enum(K.libraryView, d.libraryView),
             libraryStartTab = p[K.libraryStartTab] ?: d.libraryStartTab,
             playlistHeroCover = p[K.playlistHeroCover] ?: d.playlistHeroCover,
+            frostedPages = p[K.frostedPages] ?: d.frostedPages,
             replayThemeColors = p[K.replayThemeColors] ?: d.replayThemeColors,
+            appIconType = p.enum(K.appIconType, d.appIconType),
         )
     }
 
@@ -556,6 +570,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setAudioQuality(v: AudioQuality) = edit { it[K.audioQuality] = v.name }
     fun setCellularQuality(v: AudioQuality) = edit { it[K.cellularQuality] = v.name }
     fun setAutoplay(v: Boolean) = edit { it[K.autoplay] = v }
+    fun setVideoContinues(v: Boolean) = edit { it[K.videoContinues] = v }
     fun setLossless(v: Boolean) = edit { it[K.lossless] = v }
     fun setLosslessLocal(v: Boolean) = edit { it[K.losslessLocal] = v }
     fun setNormalize(v: Boolean) = edit { it[K.normalize] = v }
@@ -587,8 +602,6 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setTitleSize(v: TitleSize) = edit { it[K.titleSize] = v.name }
     fun setCardSize(v: CardSize) = edit { it[K.cardSize] = v.name }
     fun setReduceMotion(v: Boolean) = edit { it[K.reduceMotion] = v }
-    fun setAppIconType(v: AppIconType) = edit { it[K.appIconType] = v.name }
-    fun setCustomIconPath(v: String) = edit { it[K.customIconPath] = v }
     fun setNavStyle(v: NavBarStyle) = edit { it[K.navStyle] = v.name }
     fun setNavLabels(v: NavLabels) = edit { it[K.navLabels] = v.name }
     fun setNavHideOnScroll(v: Boolean) = edit { it[K.navHideOnScroll] = v }
@@ -598,6 +611,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setMiniSkipButtons(v: Boolean) = edit { it[K.miniSkipButtons] = v }
     fun setMiniProgress(v: MiniProgress) = edit { it[K.miniProgress] = v.name }
     fun setPlayerBackground(v: PlayerBackground) = edit { it[K.playerBackground] = v.name }
+    fun setPlayerBackdropShow(v: Float) = edit { it[K.playerBackdropShow] = v }
     fun setPlayerArtCorners(v: Int) = edit { it[K.playerArtCorners] = v }
     fun setTransportStyle(v: TransportStyle) = edit { it[K.transportStyle] = v.name }
     fun setScrubberStyle(v: ScrubberStyle) = edit { it[K.scrubberStyle] = v.name }
@@ -607,9 +621,14 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setLibraryView(v: LibraryView) = edit { it[K.libraryView] = v.name }
     fun setLibraryStartTab(v: String) = edit { it[K.libraryStartTab] = v }
     fun setPlaylistHeroCover(v: Boolean) = edit { it[K.playlistHeroCover] = v }
+    fun setFrostedPages(v: Boolean) = edit { it[K.frostedPages] = v }
     fun setReplayThemeColors(v: Boolean) = edit { it[K.replayThemeColors] = v }
+    fun setAppIconType(v: AppIconType) = edit { it[K.appIconType] = v.name }
 
     /** Puts every look & layout option back to how Meow ships (colours and backgrounds are left alone). */
     @Suppress("UNCHECKED_CAST")
     fun resetLook() = edit { p -> K.look.forEach { p.remove(it as Preferences.Key<Any>) } }
 }
+
+
+

@@ -94,3 +94,4 @@ object ReplayStats {
         return Personality(best.second, best.third)
     }
 }
+

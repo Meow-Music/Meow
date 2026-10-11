@@ -44,3 +44,4 @@ class ReplayStatsTest {
         assertEquals("The Loyalist", loyal.name)
     }
 }
+

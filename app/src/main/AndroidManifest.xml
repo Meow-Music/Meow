@@ -42,6 +42,8 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -53,6 +55,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" />
                 <data android:host="music.youtube.com" />
+            </intent-filter>
+            <!-- YouTube / YouTube Music links shared from other apps ("Play in Meow"). -->
+            <intent-filter android:label="@string/open_in_meow">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
 
@@ -160,3 +168,4 @@
         </service>
     </application>
 </manifest>
+

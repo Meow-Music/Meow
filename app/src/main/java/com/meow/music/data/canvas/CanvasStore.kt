@@ -169,3 +169,4 @@ class CanvasStore(
         runCatching { recentCache.keys.toList().forEach { recentCache.removeResource(it) } }
     }
 }
+

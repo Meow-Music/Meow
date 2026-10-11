@@ -28,18 +28,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Mood
-import androidx.compose.material.icons.rounded.Search
-import com.meow.music.data.prefs.HomeShortcut
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,21 +64,21 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.times
 import coil3.compose.AsyncImage
 import com.meow.music.data.model.AlbumItem
 import com.meow.music.data.model.BrowseItem
 import com.meow.music.data.model.PlaylistItem
-import com.meow.music.data.model.MoodItem
 import com.meow.music.data.model.Shelf
 import com.meow.music.data.model.Song
 import com.meow.music.data.model.SongItem
 import com.meow.music.data.prefs.HomeSectionConfig
 import com.meow.music.data.prefs.HomeSections
+import com.meow.music.data.prefs.HomeShortcut
 import com.meow.music.data.prefs.SectionStyle
 import com.meow.music.playback.QueueKind
 import com.meow.music.playback.QueueSource
 import com.meow.music.ui.Load
+import com.meow.music.ui.rememberLoad
 import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.Routes
 import com.meow.music.ui.components.Artwork
@@ -87,12 +87,16 @@ import com.meow.music.ui.components.ItemCard
 import com.meow.music.ui.components.ItemCarousel
 import com.meow.music.ui.components.LoadingState
 import com.meow.music.ui.components.MoodTile
+import com.meow.music.ui.components.Playable
 import com.meow.music.ui.components.SectionHeader
 import com.meow.music.ui.components.SongRow
-import com.meow.music.ui.components.Playable
+import com.meow.music.ui.components.TopScrollEdge
 import com.meow.music.ui.components.playable
+import com.meow.music.ui.components.quietFill
 import com.meow.music.ui.components.rememberPlayMenu
-import com.meow.music.ui.rememberLoad
+import com.meow.music.ui.screens.listenTotal
+import com.meow.music.ui.screens.replayGradient
+import com.meow.music.ui.screens.toggleListenUnit
 import com.meow.music.ui.theme.LocalAppSettings
 import com.meow.music.ui.theme.LocalContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,9 +115,6 @@ fun HomeScreen(bottomPadding: androidx.compose.ui.unit.Dp) {
     val settings = LocalAppSettings.current
     val layoutNow by rememberUpdatedState(settings.homeLayout)
     val home = rememberLoad("home") {
-        // YouTube's personalised feed reshuffles per load, so pinned shelves (e.g. "Mixed for you")
-        // can land on a later page or drop out entirely. Page further for them, and keep the last
-        // copy we saw rather than silently hiding a section the user turned on.
         val wanted = layoutNow.filter { it.visible && it.key.startsWith(HomeSections.YT_PREFIX) }.map { it.key }.toSet()
         val fresh = c.ytm.fullHome(pages = 3, maxPages = 8) { got -> wanted.all { k -> got.any { shelfKey(it.title) == k } } }
         val freshKeys = fresh.map { shelfKey(it.title) }.toSet()
@@ -122,7 +123,6 @@ fun HomeScreen(bottomPadding: androidx.compose.ui.unit.Dp) {
     }
     val moods = rememberLoad("moods") { c.taste.rank(runCatching { c.ytm.moodsAndGenres() }.getOrDefault(emptyList())) }
     val recent by c.library.recent.collectAsState()
-    val liked by c.library.liked.collectAsState()
 
     val shelves = (home.state as? Load.Ok)?.value ?: emptyList()
     val layout = remember(settings.homeLayout, shelves, settings.autoAddSections) {
@@ -136,71 +136,86 @@ fun HomeScreen(bottomPadding: androidx.compose.ui.unit.Dp) {
     val onSong: (SongItem) -> Unit = { c.player.playSingle(it.song) }
     val openItem: (BrowseItem) -> Unit = { nav.open(it, onSong) }
 
-    PullToRefreshBox(
-        isRefreshing = home.refreshing,
-        onRefresh = { home.reload(true); moods.reload(true) },
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = bottomPadding + 16.dp)) {
-            item { HomeTopBar() }
-            item(key = "update") { UpdateBanner() }
-            if (home.state is Load.Loading && shelves.isEmpty()) item { LoadingState() }
-            (home.state as? Load.Err)?.let { e -> item { ErrorState(e.message) { home.reload(false) } } }
-
-            layout.forEach { cfg ->
-                item(key = cfg.key) {
-                    when (cfg.key) {
-                        HomeSections.GREETING -> GreetingSection(recent)
-                        HomeSections.QUICK_PICKS -> {
-                            val qp = shelves.firstOrNull { it.title.equals("Quick picks", true) }
-                            val items = qp?.items?.filterIsInstance<SongItem>()?.map { it.song } ?: recent.take(16)
-                            if (items.isNotEmpty()) SongSection(cfg, "Quick picks", qp?.strapline, items)
-                        }
-                        HomeSections.RECENT -> if (recent.isNotEmpty()) SongSection(cfg, cfg.title, null, recent.take(20))
-                        HomeSections.LIKED -> if (liked.isNotEmpty()) SongSection(cfg, "Liked songs", null, liked.take(20)) { nav.go(Routes.liked()) }
-                        HomeSections.DOWNLOADS -> {
-                            val dls by c.downloads.downloads.collectAsState()
-                            val songs = remember(dls) { c.downloads.completedSongs() }
-                            if (songs.isNotEmpty()) SongSection(cfg, "Downloads", null, songs.take(20)) { nav.go(Routes.DOWNLOADS) }
-                        }
-                        HomeSections.REPLAY -> ReplayTeaser()
-                        HomeSections.GENRES -> TopGenresSection()
-                        HomeSections.MOODS -> {
-                            val m = (moods.state as? Load.Ok)?.value?.picks?.take(12)
-                            if (!m.isNullOrEmpty()) {
-                                SectionHeader(cfg.title, strapline = "Picked for you", onMore = { nav.go(Routes.MOODS) })
-                                LazyHorizontalGrid(
-                                    GridCells.Fixed(2), Modifier.height(150.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    items(m) { mood -> MoodTile(mood, Modifier.width(150.dp).height(68.dp)) { openItem(mood) } }
+    when (val s = home.state) {
+        Load.Loading -> LoadingState()
+        is Load.Err -> ErrorState(s.message) { home.reload(false) }
+        is Load.Ok -> PullToRefreshBox(
+            isRefreshing = home.refreshing,
+            onRefresh = { home.reload(false) },
+        ) {
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            val edge by androidx.compose.animation.core.animateFloatAsState(
+                if (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) 1f else 0f,
+                androidx.compose.animation.core.tween(220), label = "edge"
+            )
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(bottom = bottomPadding + 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item(key = "topbar") { HomeTopBar() }
+                item(key = "banner") { UpdateBanner() }
+                layout.forEach { cfg ->
+                    item(key = cfg.key) {
+                        when (cfg.key) {
+                            HomeSections.GREETING -> GreetingSection(recent)
+                            HomeSections.QUICK_PICKS -> {
+                                val shelf = shelves.firstOrNull { it.title.equals("Quick picks", ignoreCase = true) }
+                                if (shelf != null) ShelfSection(cfg, shelf, openItem)
+                            }
+                            HomeSections.RECENT -> {
+                                val songs = recent.distinctBy { it.id }.take(20)
+                                if (songs.isNotEmpty()) SongSection(cfg, "Recently played", null, songs) { nav.go(Routes.LIBRARY) }
+                            }
+                            HomeSections.LIKED -> {
+                                val liked by c.library.liked.collectAsState()
+                                if (liked.isNotEmpty()) SongSection(cfg, "Liked songs", "${liked.size} songs", liked.take(20)) { nav.go(Routes.liked()) }
+                            }
+                            HomeSections.DOWNLOADS -> {
+                                val dls by c.downloads.downloads.collectAsState()
+                                val songs = remember(dls) { c.downloads.completedSongs() }
+                                if (songs.isNotEmpty()) SongSection(cfg, "Downloads", null, songs.take(20)) { nav.go(Routes.DOWNLOADS) }
+                            }
+                            HomeSections.REPLAY -> ReplayTeaser()
+                            HomeSections.GENRES -> TopGenresSection()
+                            HomeSections.MOODS -> {
+                                val m = (moods.state as? Load.Ok)?.value?.picks?.take(12)
+                                if (!m.isNullOrEmpty()) {
+                                    SectionHeader(cfg.title, strapline = "Picked for you", onMore = { nav.go(Routes.MOODS) })
+                                    LazyHorizontalGrid(
+                                        GridCells.Fixed(2), Modifier.height(150.dp),
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        items(m) { mood -> MoodTile(mood, Modifier.width(150.dp).height(68.dp)) { openItem(mood) } }
+                                    }
                                 }
                             }
-                        }
-                        else -> {
-                            val shelf = shelves.firstOrNull { shelfKey(it.title) == cfg.key }
-                            if (shelf != null) ShelfSection(cfg, shelf, openItem)
+                            else -> {
+                                val shelf = shelves.firstOrNull { shelfKey(it.title) == cfg.key }
+                                if (shelf != null) ShelfSection(cfg, shelf, openItem)
+                            }
                         }
                     }
                 }
-            }
-            if (settings.homeCustomizeButton) item {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 32.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) {
+                if (settings.homeCustomizeButton) item {
                     Row(
-                        Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .clickable { nav.go(Routes.CATALOGUE) }.padding(horizontal = 18.dp, vertical = 11.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        Modifier.fillMaxWidth().padding(top = 32.dp),
+                        horizontalArrangement = Arrangement.Center,
                     ) {
-                        Icon(Icons.Rounded.Dashboard, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Customize Home", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            Modifier.clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .clickable { nav.go(Routes.CATALOGUE) }.padding(horizontal = 18.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.Dashboard, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Customize Home", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }
+            TopScrollEdge({ edge })
         }
     }
 }
@@ -246,10 +261,6 @@ private fun HomeTopBar() {
     }
 }
 
-/**
- * "A new Meow is out" under the greeting, when there is one. Tapping it downloads the update and
- * opens Android's installer (asking once for permission to install); × puts it off until the next.
- */
 @Composable
 private fun UpdateBanner() {
     val c = LocalContainer.current
@@ -258,7 +269,6 @@ private fun UpdateBanner() {
     LaunchedEffect(Unit) { c.updates.check() }
     val u = update ?: return
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
-    // Back from "Install unknown apps": carry on straight away if it was allowed.
     val allow = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) {
         if (c.updates.canInstall()) c.updates.install(u)
     }
@@ -317,7 +327,6 @@ private fun GreetingSection(recent: List<Song>) {
     val nav = LocalNavigator.current
     val c = LocalContainer.current
     val settings = LocalAppSettings.current
-    /** [playable]: what holding the tile offers to play (null for pages like Replay or Search). */
     data class Tile(val title: String, val icon: ImageVector?, val image: String?, val playable: Playable?, val onClick: () -> Unit)
     val tiles = buildList {
         settings.homeShortcuts.forEach { sc ->
@@ -329,6 +338,7 @@ private fun GreetingSection(recent: List<Song>) {
                 HomeShortcut.MOODS -> Icons.Rounded.Mood to Routes.MOODS
                 HomeShortcut.SEARCH -> Icons.Rounded.Search to Routes.SEARCH
                 HomeShortcut.EQUALIZER -> Icons.Rounded.GraphicEq to Routes.EQ
+                HomeShortcut.TOGETHER -> Icons.Rounded.Group to Routes.TOGETHER
             }
             val playable = when (sc) {
                 HomeShortcut.LIKED -> Playable.Liked
@@ -388,7 +398,7 @@ private fun SongSection(cfg: HomeSectionConfig, title: String, strapline: String
     when (cfg.style) {
         SectionStyle.LIST, SectionStyle.GRID -> {
             LazyHorizontalGrid(
-                GridCells.Fixed(4), Modifier.height(4 * 64.dp),
+                GridCells.Fixed(4), Modifier.height((4 * 64).dp),
                 contentPadding = PaddingValues(horizontal = 4.dp),
             ) {
                 items(songs.size) { i ->
@@ -417,22 +427,25 @@ private fun ShelfSection(cfg: HomeSectionConfig, shelf: Shelf, open: (BrowseItem
     when {
         cfg.style == SectionStyle.HERO -> HeroRow(shelf.items, open)
         cfg.style == SectionStyle.LIST && allSongs -> LazyHorizontalGrid(
-            GridCells.Fixed(4), Modifier.height(4 * 64.dp), contentPadding = PaddingValues(horizontal = 4.dp),
+            GridCells.Fixed(4), Modifier.height((4 * 64).dp), contentPadding = PaddingValues(horizontal = 4.dp),
         ) {
             items(songs.size) { i ->
                 Box(Modifier.width(330.dp)) { SongRow(songs[i]) { c.player.playQueue(songs, i, QueueSource(QueueKind.OTHER, shelf.title)) } }
             }
         }
         cfg.style == SectionStyle.LIST -> LazyHorizontalGrid(
-            GridCells.Fixed(4), Modifier.height(4 * 64.dp), contentPadding = PaddingValues(horizontal = 4.dp),
+            GridCells.Fixed(4), Modifier.height((4 * 64).dp), contentPadding = PaddingValues(horizontal = 4.dp),
         ) {
             items(shelf.items.size) { i ->
                 val item = shelf.items[i]
-                Box(Modifier.width(330.dp)) { ResultRow(item) { open(item) } }
+                Box(Modifier.width(330.dp)) {
+                    if (item is SongItem) SongRow(item.song) { open(item) }
+                    else ItemCard(item, width = 330.dp) { open(item) }
+                }
             }
         }
         cfg.style == SectionStyle.GRID -> LazyHorizontalGrid(
-            GridCells.Fixed(2), Modifier.height(2 * 220.dp), contentPadding = PaddingValues(horizontal = 12.dp),
+            GridCells.Fixed(2), Modifier.height((2 * 220).dp), contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             items(shelf.items) { item -> ItemCard(item, width = 140.dp) { open(item) } }
         }
@@ -486,7 +499,7 @@ private fun ReplayTeaser() {
     ) {
         Column(Modifier.align(Alignment.BottomStart)) {
             Text("REPLAY $year", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
-            Text(total.full,Modifier.toggleListenUnit(), color = Color.White, style = MaterialTheme.typography.displaySmall)
+            Text(total.full, Modifier.toggleListenUnit(), color = Color.White, style = MaterialTheme.typography.displaySmall)
             Text("See your top songs, artists and genres", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium)
         }
         Icon(Icons.Rounded.AutoAwesome, null, tint = Color.White, modifier = Modifier.align(Alignment.TopEnd))
