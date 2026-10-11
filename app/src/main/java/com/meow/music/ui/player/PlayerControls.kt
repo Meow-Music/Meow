@@ -474,7 +474,7 @@ fun OutputCaption() {
     val c = LocalContainer.current
     val settings by c.settings.flow.collectAsState()
     val preferred by c.player.preferredOutput.collectAsState()
-    val phoneName = settings.accountName.split(" ").firstOrNull()?.takeIf { it.isNotBlank() }?.let { "$it's Phone" } ?: "This Phone"
+    val phoneName = settings.displayName.split(" ").firstOrNull()?.takeIf { it.isNotBlank() }?.let { "$it's Phone" } ?: "This Phone"
     var current by remember { mutableStateOf(currentOutput(context, preferred)) }
     LaunchedEffect(preferred) {
         while (isActive) { current = currentOutput(context, preferred); delay(1500) }

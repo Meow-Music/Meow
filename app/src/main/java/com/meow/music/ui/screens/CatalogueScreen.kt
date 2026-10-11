@@ -312,23 +312,29 @@ private fun GreetingField() {
     }
 }
 
-/** Your name displayed in the greeting header (e.g. Good morning / Master). */
+/** Your name displayed in the greeting header (e.g. Good morning, Master). */
 @Composable
 private fun NameField() {
     val c = LocalContainer.current
     val settings = LocalAppSettings.current
-    var name by remember { mutableStateOf(settings.accountName.ifBlank { "Master" }) }
+    var text by remember(settings.customName) { mutableStateOf(settings.customName) }
+    val fallback = remember(settings.accountName) {
+        settings.accountName.takeIf { it.isNotBlank() && !it.equals("YouTube Music", ignoreCase = true) } ?: "Master"
+    }
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text("Your Name", style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
         BasicTextField(
-            name, { name = it; c.settings.setAccountName(it) },
+            text, { newText ->
+                text = newText
+                c.settings.setCustomName(newText)
+            },
             Modifier.fillMaxWidth().padding(top = 2.dp),
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface, fontWeight = FontWeight.Medium),
             cursorBrush = SolidColor(scheme.primary),
             decorationBox = { inner ->
-                if (name.isEmpty()) Text("Master", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
+                if (text.isEmpty()) Text(fallback, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
                 inner()
             },
         )

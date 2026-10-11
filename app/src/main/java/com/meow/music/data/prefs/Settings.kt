@@ -125,6 +125,7 @@ object HomeSections {
     const val REPLAY = "local:replay"
     const val GENRES = "local:genres"
     const val MOODS = "yt:moods"
+    const val COVERS_AND_REMIXES = "yt:shelf:covers and remixes"
     const val FROM_YOUR_LIBRARY = "yt:shelf:from your library"
     const val FROM_THE_COMMUNITY = "yt:shelf:from the community"
     const val YT_PREFIX = "yt:shelf:"
@@ -132,25 +133,28 @@ object HomeSections {
     const val TILES_TITLE = "Shortcut tiles"
 
     val defaults = listOf(
+        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.HERO, visible = true),
         HomeSectionConfig(RECENT, "Recently played", style = SectionStyle.HERO),
+        HomeSectionConfig(COVERS_AND_REMIXES, "Covers and remixes", style = SectionStyle.CAROUSEL),
         HomeSectionConfig(LIKED, "Liked songs", style = SectionStyle.CAROUSEL),
         HomeSectionConfig(DOWNLOADS, "Downloads", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(FROM_YOUR_LIBRARY, "From your library", style = SectionStyle.LIST),
-        HomeSectionConfig(FROM_THE_COMMUNITY, "From the community", style = SectionStyle.LIST),
+        HomeSectionConfig(FROM_YOUR_LIBRARY, "From your library", style = SectionStyle.GRID),
+        HomeSectionConfig(FROM_THE_COMMUNITY, "From the community", style = SectionStyle.GRID),
         HomeSectionConfig(GENRES, "Your top genres", style = SectionStyle.GRID),
         HomeSectionConfig(MOODS, "Moods & genres", style = SectionStyle.GRID),
-        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.HERO, visible = false),
         HomeSectionConfig(QUICK_PICKS, "Quick picks", style = SectionStyle.LIST, visible = false),
         HomeSectionConfig(REPLAY, "Replay teaser", style = SectionStyle.HERO, visible = false),
     )
 
     /** What a fresh install's Home shows (and what Reset goes back to). */
     val initial = listOf(
+        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.HERO, visible = true),
         HomeSectionConfig(RECENT, "Recently played", style = SectionStyle.HERO),
+        HomeSectionConfig(COVERS_AND_REMIXES, "Covers and remixes", style = SectionStyle.CAROUSEL),
         HomeSectionConfig(LIKED, "Liked songs", style = SectionStyle.CAROUSEL),
         HomeSectionConfig(DOWNLOADS, "Downloads", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(FROM_YOUR_LIBRARY, "From your library", style = SectionStyle.LIST),
-        HomeSectionConfig(FROM_THE_COMMUNITY, "From the community", style = SectionStyle.LIST),
+        HomeSectionConfig(FROM_YOUR_LIBRARY, "From your library", style = SectionStyle.GRID),
+        HomeSectionConfig(FROM_THE_COMMUNITY, "From the community", style = SectionStyle.GRID),
     )
 }
 
@@ -241,6 +245,7 @@ data class AppSettings(
     /** Home's headline; blank means good morning / afternoon / evening. */
     val greetingText: String = "",
     val greetingShowName: Boolean = true,
+    val customName: String = "",
     val homeShortcuts: List<HomeShortcut> = listOf(HomeShortcut.LIKED, HomeShortcut.DOWNLOADS, HomeShortcut.REPLAY),
     /** Recently played albums added after the shortcuts. */
     val homeRecentTiles: Int = 3,
@@ -285,6 +290,11 @@ data class AppSettings(
     val appIconType: AppIconType = AppIconType.DEFAULT,
 ) {
     val isLoggedIn: Boolean get() = cookie.contains("SAPISID")
+
+    val displayName: String
+        get() = customName.trim().ifBlank {
+            accountName.takeIf { it.isNotBlank() && !it.equals("YouTube Music", ignoreCase = true) } ?: "Master"
+        }
 }
 
 class SettingsRepository(private val context: Context, scope: CoroutineScope) {
@@ -347,6 +357,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val greetingEnable = booleanPreferencesKey("greeting_enable")
         val greetingText = stringPreferencesKey("greeting_text")
         val greetingShowName = booleanPreferencesKey("greeting_show_name")
+        val customName = stringPreferencesKey("custom_name")
         val homeShortcuts = stringPreferencesKey("home_shortcuts")
         val homeRecentTiles = intPreferencesKey("home_recent_tiles")
         val homePlaylists = stringPreferencesKey("home_playlists")
@@ -464,6 +475,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             greetingEnable = p[K.greetingEnable] ?: d.greetingEnable,
             greetingText = p[K.greetingText] ?: d.greetingText,
             greetingShowName = p[K.greetingShowName] ?: d.greetingShowName,
+            customName = p[K.customName] ?: d.customName,
             homeShortcuts = p[K.homeShortcuts]?.let { v ->
                 v.split(",").mapNotNull { n -> HomeShortcut.entries.firstOrNull { it.name == n } }
             } ?: d.homeShortcuts,
@@ -527,7 +539,9 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     }
 
     fun saveAccountInfo(name: String, email: String?, avatar: String?) = edit {
-        it[K.accountName] = name
+        if (name.isNotBlank() && !name.equals("YouTube Music", ignoreCase = true)) {
+            it[K.accountName] = name
+        }
         it[K.accountEmail] = email ?: ""
         it[K.accountAvatar] = avatar ?: ""
     }
@@ -537,6 +551,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun logout() = edit {
         it.remove(K.cookie); it.remove(K.dataSyncId)
         it.remove(K.accountName); it.remove(K.accountEmail); it.remove(K.accountAvatar)
+        it.remove(K.customName)
     }
 
     fun setThemeMode(v: ThemeMode) = edit { it[K.themeMode] = v.name }
@@ -590,6 +605,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setGreetingEnable(v: Boolean) = edit { it[K.greetingEnable] = v }
     fun setGreetingText(v: String) = edit { it[K.greetingText] = v }
     fun setGreetingShowName(v: Boolean) = edit { it[K.greetingShowName] = v }
+    fun setCustomName(v: String) = edit { it[K.customName] = v }
     fun setAccountName(v: String) = edit { it[K.accountName] = v }
     fun setHomeShortcuts(v: List<HomeShortcut>) = edit { it[K.homeShortcuts] = v.joinToString(",") { s -> s.name } }
     fun setHomeRecentTiles(v: Int) = edit { it[K.homeRecentTiles] = v }

@@ -234,10 +234,12 @@ private fun HomeTopBar() {
             else -> "Good evening"
         }
     }
-    val name = settings.accountName.ifBlank { "Master" }
+    val name = settings.displayName
     val headline = remember(settings.greetingText, timeGreeting, settings.greetingShowName, name) {
         val period = settings.greetingText.trim().ifBlank { timeGreeting }
-        if (settings.greetingShowName) "$period / $name" else period
+        if (settings.greetingShowName && name.isNotBlank()) {
+            if (period.contains(name, ignoreCase = true)) period else "$period, $name"
+        } else period
     }
     val today = remember { java.text.SimpleDateFormat("EEEE d MMMM", java.util.Locale.getDefault()).format(java.util.Date()) }
     val ui = com.meow.music.ui.theme.LocalUi.current
@@ -396,7 +398,7 @@ private fun SongSection(cfg: HomeSectionConfig, title: String, strapline: String
     val c = LocalContainer.current
     SectionHeader(title, strapline = strapline, onMore = onMore)
     when (cfg.style) {
-        SectionStyle.LIST, SectionStyle.GRID -> {
+        SectionStyle.LIST -> {
             LazyHorizontalGrid(
                 GridCells.Fixed(4), Modifier.height((4 * 64).dp),
                 contentPadding = PaddingValues(horizontal = 4.dp),
@@ -404,6 +406,18 @@ private fun SongSection(cfg: HomeSectionConfig, title: String, strapline: String
                 items(songs.size) { i ->
                     Box(Modifier.width(330.dp)) {
                         SongRow(songs[i]) { c.player.playQueue(songs, i, QueueSource(QueueKind.OTHER, title)) }
+                    }
+                }
+            }
+        }
+        SectionStyle.GRID -> {
+            LazyHorizontalGrid(
+                GridCells.Fixed(2), Modifier.height((2 * 220).dp), contentPadding = PaddingValues(horizontal = 12.dp),
+            ) {
+                items(songs.size) { i ->
+                    val song = songs[i]
+                    ItemCard(SongItem(song), width = 140.dp) {
+                        c.player.playQueue(songs, i, QueueSource(QueueKind.OTHER, title))
                     }
                 }
             }

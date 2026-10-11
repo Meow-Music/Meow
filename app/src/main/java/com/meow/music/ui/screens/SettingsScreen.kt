@@ -55,6 +55,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -946,7 +947,7 @@ private fun AboutSection() {
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val ui = LocalUi.current
     val scheme = MaterialTheme.colorScheme
-    var expanded by remember { mutableStateOf(true) }
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Developer (Rexx), 1: Mrs Lucky Charm
 
     Column(
         Modifier
@@ -956,166 +957,295 @@ private fun AboutSection() {
                 Brush.linearGradient(
                     listOf(
                         scheme.surfaceContainerHigh,
-                        scheme.primaryContainer.copy(alpha = 0.45f)
+                        if (selectedTab == 0) scheme.primaryContainer.copy(alpha = 0.45f)
+                        else scheme.tertiaryContainer.copy(alpha = 0.45f)
                     )
                 )
             )
             .padding(18.dp)
     ) {
+        // Tab Selector Bar
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.clickable { expanded = !expanded }
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(scheme.surfaceContainerLowest.copy(alpha = 0.7f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Box(
-                Modifier
-                    .size(68.dp)
-                    .clip(CircleShape)
-                    .border(2.dp, scheme.primary, CircleShape)
-                    .background(scheme.surface),
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (selectedTab == 0) scheme.primary else Color.Transparent)
+                    .clickable { selectedTab = 0 }
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                androidx.compose.foundation.Image(
-                    painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.dev),
-                    contentDescription = "Developer Profile",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-            }
-
-            Spacer(Modifier.width(14.dp))
-
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Rexx",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = scheme.onSurface
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(scheme.primary.copy(alpha = 0.2f))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            "v${com.meow.music.BuildConfig.VERSION_NAME}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = scheme.primary
-                        )
-                    }
-                }
-                Spacer(Modifier.height(4.dp))
                 Text(
-                    "Creator & Lead Developer of Meow Music",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant
-                )
-                Text(
-                    "Ad-free, high-fidelity native music streaming.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.75f)
-                )
-            }
-
-            Icon(
-                if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = "Toggle developer info",
-                tint = scheme.onSurfaceVariant
-            )
-        }
-
-        AnimatedVisibility(visible = expanded) {
-            Column(Modifier.padding(top = 18.dp)) {
-                androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f))
-                Spacer(Modifier.height(16.dp))
-
-                Text(
-                    "Connect & Follow",
+                    "Lead Developer",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
-                    color = scheme.primary
+                    color = if (selectedTab == 0) scheme.onPrimary else scheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(10.dp))
+            }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (selectedTab == 1) scheme.tertiary else Color.Transparent)
+                    .clickable { selectedTab = 1 }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Mrs Lucky Charm 🌸",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selectedTab == 1) scheme.onTertiary else scheme.onSurfaceVariant
+                )
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        if (selectedTab == 0) {
+            // Rexx (Lead Developer) Section
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, scheme.primary, CircleShape)
+                        .background(scheme.surface),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Telegram
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(ui.shape(12.dp))
-                            .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
-                            .clickable { runCatching { uriHandler.openUri("https://t.me/rex_mahakaal") } }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_telegram),
-                            contentDescription = "Telegram",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Telegram",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface
-                        )
-                    }
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.dev),
+                        contentDescription = "Developer Profile",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
 
-                    // Messenger
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(ui.shape(12.dp))
-                            .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
-                            .clickable { runCatching { uriHandler.openUri("https://m.me/rexofhell") } }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_messenger),
-                            contentDescription = "Messenger",
-                            tint = Color.Unspecified,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Messenger",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = scheme.onSurface
-                        )
-                    }
+                Spacer(Modifier.width(14.dp))
 
-                    // GitHub
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .clip(ui.shape(12.dp))
-                            .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
-                            .clickable { runCatching { uriHandler.openUri("https://github.com/Meow-Music/Meow") } }
-                            .padding(vertical = 12.dp, horizontal = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(
-                            painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_github),
-                            contentDescription = "GitHub",
-                            tint = scheme.onSurface,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(Modifier.height(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "GitHub",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
+                            "Rexx",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = scheme.onSurface
                         )
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(scheme.primary.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "v${com.meow.music.BuildConfig.VERSION_NAME}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = scheme.primary
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Creator & Lead Developer of Meow Music",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Ad-free, high-fidelity native music streaming.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.75f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Connect & Follow Rexx",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = scheme.primary
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Telegram
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(ui.shape(12.dp))
+                        .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
+                        .clickable { runCatching { uriHandler.openUri("https://t.me/rex_mahakaal") } }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_telegram),
+                        contentDescription = "Telegram",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Telegram",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface
+                    )
+                }
+
+                // Messenger
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(ui.shape(12.dp))
+                        .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
+                        .clickable { runCatching { uriHandler.openUri("https://m.me/rexofhell") } }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_messenger),
+                        contentDescription = "Messenger",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Messenger",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface
+                    )
+                }
+
+                // GitHub
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(ui.shape(12.dp))
+                        .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
+                        .clickable { runCatching { uriHandler.openUri("https://github.com/Meow-Music/Meow") } }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_github),
+                        contentDescription = "GitHub",
+                        tint = scheme.onSurface,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "GitHub",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface
+                    )
+                }
+            }
+        } else {
+            // Mrs Lucky Charm Section
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(68.dp)
+                        .clip(CircleShape)
+                        .border(2.dp, scheme.tertiary, CircleShape)
+                        .background(scheme.surface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.mrs_dev),
+                        contentDescription = "Mrs Lucky Charm Profile",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+
+                Spacer(Modifier.width(14.dp))
+
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Mrs Lucky Charm 🌸",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = scheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(scheme.tertiary.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Developer Contributor & Helper",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant
+                    )
+                    Text(
+                        "Cute, helpful and smart guider.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.85f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(Modifier.height(16.dp))
+
+            Text(
+                "Connect & Follow Mrs Lucky Charm 🌸",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = scheme.tertiary
+            )
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // TikTok
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(ui.shape(12.dp))
+                        .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
+                        .clickable { runCatching { uriHandler.openUri("https://www.tiktok.com/@laxmeee11?_r=1&_t=ZS-9AUP9Ns4Olp") } }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_tiktok),
+                        contentDescription = "TikTok",
+                        tint = Color.Unspecified,
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "TikTok",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.onSurface
+                    )
                 }
             }
         }
