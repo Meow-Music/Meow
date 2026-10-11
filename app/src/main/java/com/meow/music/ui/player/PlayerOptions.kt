@@ -89,9 +89,14 @@ fun PlayerOptionsSheet(
         ActionItem(Icons.Rounded.Radio, "Radio") { c.player.playRadio(song) },
         ActionItem(
             if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, "Download",
-            value = when { downloaded -> "Downloaded"; dl != null -> "${dl.percent.toInt().coerceAtLeast(0)}%"; else -> null },
+            value = when {
+                downloaded -> "Downloaded"
+                dl?.state == androidx.media3.exoplayer.offline.Download.STATE_FAILED -> "Failed"
+                dl != null -> "${dl.percent.toInt().coerceAtLeast(0)}%"
+                else -> null
+            },
             active = downloaded, keepOpen = true,
-        ) { if (dl != null) c.downloads.remove(song.id) else c.downloads.download(song) },
+        ) { if (downloaded || (dl != null && dl.state != androidx.media3.exoplayer.offline.Download.STATE_FAILED)) c.downloads.remove(song.id) else c.downloads.download(song) },
         if (c.settings.current.isLoggedIn) ActionItem(Icons.AutoMirrored.Rounded.PlaylistAdd, "Playlist", keepOpen = true) { pickPlaylist = true } else null,
         ActionItem(
             Icons.Rounded.Bedtime, "Sleep",

@@ -15,8 +15,8 @@ android {
         applicationId = "com.meow.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.0.3"
+        versionCode = 14
+        versionName = "1.0.4"
         vectorDrawables { useSupportLibrary = true }
         // Optional: `lastfm.apiKey=…` in local.properties lets genre detection ask Last.fm too.
         val localProps = Properties().apply {
@@ -144,7 +144,7 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     // Renders the backgrounds to PNGs on the PC (BackdropRenderTest), with Robolectric's real graphics.
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.17")
 }
 
 tasks.withType<Test>().configureEach {

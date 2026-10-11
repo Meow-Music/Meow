@@ -151,10 +151,10 @@ class AppContainer(val app: Application) {
 
     private fun resolveAudio(spec: DataSpec, useCaches: Boolean): DataSpec {
         val uri = spec.uri
-        if (uri.scheme != "Meow") return spec
+        if (uri.scheme?.equals("meow", ignoreCase = true) != true) return spec
         val id = uri.lastPathSegment ?: return spec
         if (useCaches) {
-            if (downloadCache.fullyCached(id, spec.position, spec.length)) {
+            if (downloads.isDownloaded(id) || downloads.isLosslessOnly(id) || downloadCache.fullyCached(id, spec.position, spec.length)) {
                 streamDetails[id] = "Downloaded" to streamDetails[id]?.second
                 onStreamResolved?.invoke(id)
                 return spec.buildUpon().setKey(id).build()
@@ -199,8 +199,8 @@ class AppContainer(val app: Application) {
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         return ResolvingDataSource.Factory(downloadsFirst) { spec ->
             val id = spec.uri.lastPathSegment
-            if (spec.uri.scheme != "Meow" || id == null) spec
-            else if (downloadCache.fullyCached("video:$id", spec.position, spec.length)) spec.buildUpon().setKey("video:$id").build()
+            if (spec.uri.scheme?.equals("meow", ignoreCase = true) != true || id == null) spec
+            else if (downloads.downloadedVideoId(id) != null || downloadCache.fullyCached("video:$id", spec.position, spec.length)) spec.buildUpon().setKey("video:$id").build()
             else spec.buildUpon().setUri(resolveVideoUrl(id)).setKey("video:$id").build()
         }
     }
@@ -217,7 +217,7 @@ class AppContainer(val app: Application) {
     fun liveDataSourceFactory(): DataSource.Factory =
         ResolvingDataSource.Factory(OkHttpDataSource.Factory(http).setUserAgent(com.meow.music.data.stream.DESKTOP_UA)) { spec ->
             val id = spec.uri.lastPathSegment
-            if (spec.uri.scheme != "Meow" || id == null) spec else {
+            if (spec.uri.scheme?.equals("meow", ignoreCase = true) != true || id == null) spec else {
                 val url = try { streams.liveManifest(id) } catch (e: Exception) { throw IOException(e.message ?: "Couldn't load the live stream", e) }
                 streamDetails[id] = "Live" to streamDetails[id]?.second
                 onStreamResolved?.invoke(id)
@@ -229,7 +229,7 @@ class AppContainer(val app: Application) {
     fun downloadDataSourceFactory(): DataSource.Factory =
         ResolvingDataSource.Factory(OkHttpDataSource.Factory(streamHttp)) { spec ->
             val id = spec.uri.lastPathSegment
-            if (spec.uri.scheme == "Meow" && spec.uri.authority == "video" && id != null) {
+            if (spec.uri.scheme?.equals("meow", ignoreCase = true) == true && spec.uri.authority == "video" && id != null) {
                 spec.buildUpon().setUri(resolveVideoUrl(id)).setKey("video:$id").build()
             } else resolveAudio(spec, false)
         }

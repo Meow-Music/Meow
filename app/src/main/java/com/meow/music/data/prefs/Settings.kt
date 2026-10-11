@@ -234,7 +234,7 @@ data class AppSettings(
     val spatialAmount: Float = 0.75f,
     // Home
     val homeLayout: List<HomeSectionConfig> = HomeSections.initial,
-    val autoAddSections: Boolean = true,
+    val autoAddSections: Boolean = false,
     /** Replay shows listening time as hours and minutes (20h 4m) instead of minutes (1,204 min). */
     val replayHours: Boolean = true,
     val greetingEnable: Boolean = true,
@@ -246,7 +246,7 @@ data class AppSettings(
     val homeRecentTiles: Int = 3,
     /** Playlists shown as tiles after the shortcuts. */
     val homePlaylists: List<PinnedPlaylist> = emptyList(),
-    val homeCustomizeButton: Boolean = true,
+    val homeCustomizeButton: Boolean = false,
     // Interface
     val fontChoice: FontChoice = FontChoice.ROUNDED,
     val textScale: Float = 1f,

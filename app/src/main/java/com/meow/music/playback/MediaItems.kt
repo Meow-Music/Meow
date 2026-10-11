@@ -1,5 +1,8 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.meow.music.playback
 
+import androidx.annotation.OptIn
 import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
@@ -17,8 +20,8 @@ const val EXTRA_VIDEO = "meow.video"
  * keeps the same URI (so switching doesn't reload the stream) and only turns the video track on.
  */
 fun Song.toMediaItem(videoId: String? = null): MediaItem {
-    val uri = if (isLive) Uri.Builder().scheme("Meow").authority("live").appendPath(id).build()
-    else Uri.Builder().scheme("Meow").authority("audio").appendPath(id).apply {
+    val uri = if (isLive) Uri.Builder().scheme("meow").authority("live").appendPath(id).build()
+    else Uri.Builder().scheme("meow").authority("audio").appendPath(id).apply {
         if (videoId != null) appendQueryParameter("video", videoId)
     }.build()
     val extras = Bundle().apply {
