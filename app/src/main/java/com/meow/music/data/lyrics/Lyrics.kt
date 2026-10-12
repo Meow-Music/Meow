@@ -671,6 +671,11 @@ class LyricsRepository(
     }
 
     private suspend fun fetchRaw(song: Song, source: LyricsSource, force: Boolean = false): Lyrics? = withContext(Dispatchers.IO) {
+        if (source == LyricsSource.CUSTOM) {
+            val cached = dao.get(song.id, source.name) ?: return@withContext null
+            if (cached.content.isBlank()) return@withContext null
+            return@withContext build(source, cached.content)
+        }
         if (!force) dao.get(song.id, source.name)?.let { cached ->
             // A real answer is kept; a "not found" is retried after a day.
             // NetEase and KuGou answers from before they went word-by-word are fetched again once.
@@ -681,6 +686,7 @@ class LyricsRepository(
         }
         val text = try {
             when (source) {
+                LyricsSource.CUSTOM -> null
                 LyricsSource.APPLE -> fetchApple(song)
                 LyricsSource.LYRICSPLUS -> fetchLyricsPlus(song)
                 LyricsSource.BINI -> fetchBini(song)
@@ -702,6 +708,37 @@ class LyricsRepository(
         val lyrics = build(source, text)
         dao.put(LyricsEntity(song.id, source.name, lyrics?.synced == true, if (lyrics == null) "" else text ?: "", System.currentTimeMillis()))
         lyrics
+    }
+
+    suspend fun saveCustom(song: Song, content: String): Lyrics? = withContext(Dispatchers.IO) {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) {
+            deleteCustom(song)
+            null
+        } else {
+            val lyrics = build(LyricsSource.CUSTOM, trimmed)
+            val entity = LyricsEntity(
+                songId = song.id,
+                source = LyricsSource.CUSTOM.name,
+                synced = lyrics?.synced == true,
+                content = trimmed,
+                fetchedAt = System.currentTimeMillis(),
+            )
+            dao.put(entity)
+            choose(song, LyricsSource.CUSTOM)
+            lyrics
+        }
+    }
+
+    suspend fun deleteCustom(song: Song) = withContext(Dispatchers.IO) {
+        dao.put(LyricsEntity(song.id, LyricsSource.CUSTOM.name, false, "", System.currentTimeMillis()))
+        if (chosen(song) == LyricsSource.CUSTOM) {
+            choices?.edit()?.remove(song.id)?.apply()
+        }
+    }
+
+    suspend fun getCustomRaw(song: Song): String? = withContext(Dispatchers.IO) {
+        dao.get(song.id, LyricsSource.CUSTOM.name)?.content?.takeIf { it.isNotBlank() }
     }
 
     private companion object {
@@ -729,6 +766,7 @@ class LyricsRepository(
     private suspend fun saved(song: Song): Lyrics? = withContext(Dispatchers.IO) {
         val s = settings()
         val rows = dao.allFor(song.id).associateBy { it.source }
+        rows[LyricsSource.CUSTOM.name]?.let { build(LyricsSource.CUSTOM, it.content) }?.let { return@withContext it }
         // Genius's text, if it's saved, fills in starred-out words offline too.
         val reference = if (s.skipCensored) rows[LyricsSource.GENIUS.name]?.let { build(LyricsSource.GENIUS, it.content)?.plain } else null
         val all = s.lyricsOrder.mapNotNull { src -> rows[src.name]?.let { build(src, it.content) } }

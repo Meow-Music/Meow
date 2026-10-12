@@ -112,7 +112,7 @@ fun PlayerOptionsSheet(
     val cover = com.meow.music.data.canvas.CanvasRepository.albumKey(song)
     val player = listOfNotNull(
         com.meow.music.ui.components.videoDownloadAction(song, videos[song.id]),
-        ActionItem(Icons.Rounded.Groups, "Listen together", value = if (inSession) "On" else null, active = inSession) { onCollapse(); nav.go(Routes.TOGETHER) },
+        ActionItem(Icons.Rounded.Groups, "Live Room", value = if (inSession) "Active" else null, active = inSession) { onCollapse(); nav.go(Routes.TOGETHER) },
         ActionItem(Icons.Rounded.DataUsage, "Stats for nerds", active = statsShown, onClick = onToggleStats),
         if (hasCanvas) ActionItem(Icons.Rounded.Animation, "Animated cover", active = song.id !in hidden, keepOpen = true) { c.canvas.setHidden(song.id, song.id !in hidden) } else null,
         if (!hasCanvas) null else if (saved.has(song.id, cover)) ActionItem(Icons.Rounded.SaveAlt, "Animated cover saved", active = true, keepOpen = true) { c.canvasStore.unsave(song) }

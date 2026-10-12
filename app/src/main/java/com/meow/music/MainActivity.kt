@@ -453,7 +453,7 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                                 Modifier.padding(bottom = 8.dp).then(if (docked) Modifier.padding(horizontal = 10.dp) else Modifier),
                             ) { playerOpen = true }
                         }
-                        TabBar(tabs, route, barT, settings, selectTab)
+                        TabBar(tabs, route, barT, settings, inSession, selectTab) { navigator.go(Routes.TOGETHER) }
                     }
                 }
 
@@ -473,11 +473,14 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
 @Composable
 private fun TogetherPill(state: com.meow.music.playback.together.TogetherState, modifier: Modifier, onClick: () -> Unit) {
     val (icon, text) = when (state) {
-        is com.meow.music.playback.together.TogetherState.Hosting ->
-            Icons.Rounded.WifiTethering to "Hosting · code ${state.code}" + when (state.guests.size) { 0 -> ""; 1 -> " · 1 listening"; else -> " · ${state.guests.size} listening" }
+        is com.meow.music.playback.together.TogetherState.Hosting -> {
+            val countStr = when (state.guests.size) { 0 -> ""; 1 -> " · 1 listener"; else -> " · ${state.guests.size} listeners" }
+            val roomType = if (state.code == com.meow.music.playback.together.Msg.OPEN_CODE) "⚡ Live Room" else "🔒 PIN ${state.code}"
+            Icons.Rounded.WifiTethering to "$roomType$countStr"
+        }
         is com.meow.music.playback.together.TogetherState.Guest ->
-            Icons.Rounded.Groups to "With ${state.hostName}" + when {
-                !state.listenHere -> " · adding songs"
+            Icons.Rounded.Groups to "Live Room · With ${state.hostName}" + when {
+                !state.listenHere -> " · queue mode"
                 !state.inSync -> " · out of step"
                 else -> ""
             }
@@ -486,7 +489,7 @@ private fun TogetherPill(state: com.meow.music.playback.together.TogetherState, 
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         GlassSurface(Modifier.height(34.dp), shape = RoundedCornerShape(17.dp), elevation = 4.dp) {
             Row(
-                Modifier.fillMaxHeight().clickable(onClickLabel = "Open Listen together", onClick = onClick).padding(horizontal = 14.dp),
+                Modifier.fillMaxHeight().clickable(onClickLabel = "Open Live Room", onClick = onClick).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -502,37 +505,73 @@ private fun isSelected(tab: Tab, route: String?): Boolean =
 
 /** @param compact 0 = full bar, 1 = slim bar (while scrolling down). */
 @Composable
-private fun TabBar(tabs: List<Tab>, route: String?, compact: Float, settings: AppSettings, onSelect: (String) -> Unit) {
-    when (settings.navStyle) {
-        NavBarStyle.FLOATING -> {
-            val height = lerp(64.dp, 50.dp, compact)
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                GlassSurface(Modifier.fillMaxWidth(1f - 0.30f * compact).height(height), shape = RoundedCornerShape(height / 2)) {
-                    Row(Modifier.fillMaxSize().padding(lerp(6.dp, 4.dp, compact)), verticalAlignment = Alignment.CenterVertically) {
-                        tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
+private fun TabBar(
+    tabs: List<Tab>,
+    route: String?,
+    compact: Float,
+    settings: AppSettings,
+    inSession: Boolean,
+    onSelect: (String) -> Unit,
+    onLiveRoomClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.weight(1f, fill = false), contentAlignment = Alignment.Center) {
+            when (settings.navStyle) {
+                NavBarStyle.FLOATING -> {
+                    val height = lerp(64.dp, 50.dp, compact)
+                    GlassSurface(Modifier.fillMaxWidth(1f - 0.25f * compact).height(height), shape = RoundedCornerShape(height / 2)) {
+                        Row(Modifier.fillMaxSize().padding(lerp(6.dp, 4.dp, compact)), verticalAlignment = Alignment.CenterVertically) {
+                            tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
+                        }
+                    }
+                }
+                NavBarStyle.DOCKED -> {
+                    GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), elevation = 4.dp) {
+                        Row(
+                            Modifier.fillMaxWidth().navigationBarsPadding().height(lerp(62.dp, 50.dp, compact)).padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
+                        }
+                    }
+                }
+                NavBarStyle.MINIMAL -> {
+                    GlassSurface(Modifier.height(54.dp), shape = RoundedCornerShape(27.dp)) {
+                        Row(Modifier.fillMaxHeight().padding(5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            tabs.forEach { tab -> MinimalTab(tab, isSelected(tab, route)) { onSelect(tab.route) } }
+                        }
                     }
                 }
             }
         }
-        NavBarStyle.DOCKED -> {
-            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), elevation = 4.dp) {
-                Row(
-                    Modifier.fillMaxWidth().navigationBarsPadding().height(lerp(62.dp, 50.dp, compact)).padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
-                }
-            }
+        if (settings.showLiveRoomNavBadge) {
+            Spacer(Modifier.width(6.dp))
+            LiveRoomNavBadge(inSession = inSession, onClick = onLiveRoomClick)
         }
-        NavBarStyle.MINIMAL -> {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                GlassSurface(Modifier.height(54.dp), shape = RoundedCornerShape(27.dp)) {
-                    Row(Modifier.fillMaxHeight().padding(5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                        tabs.forEach { tab -> MinimalTab(tab, isSelected(tab, route)) { onSelect(tab.route) } }
-                    }
-                }
-            }
-        }
+    }
+}
+
+@Composable
+private fun LiveRoomNavBadge(inSession: Boolean, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (inSession) scheme.primaryContainer else scheme.surfaceContainerHigh.copy(alpha = 0.9f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Groups,
+            contentDescription = "Live Room",
+            tint = if (inSession) scheme.onPrimaryContainer else scheme.primary,
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 

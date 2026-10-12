@@ -68,6 +68,7 @@ sealed class Msg {
 
     companion object {
         const val VERSION = 1
+        const val OPEN_CODE = "OPEN"
     }
 }
 

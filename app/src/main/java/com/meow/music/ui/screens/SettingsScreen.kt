@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.WifiTethering
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.SpaceDashboard
@@ -126,6 +128,7 @@ enum class SettingsSection(val key: String, val title: String, val icon: ImageVe
     SOUND("sound", "Playback & sound", Icons.Outlined.GraphicEq),
     LYRICS("lyrics", "Lyrics", Icons.Outlined.FormatQuote),
     DOWNLOADS("downloads", "Downloads & storage", Icons.Outlined.DownloadForOffline),
+    LIVEROOM("liveroom", "Live Room", Icons.Rounded.Groups),
     HOME("home", "Home screen", Icons.Outlined.Home),
     LIBRARY("library", "Library & Replay", Icons.Outlined.LibraryMusic),
     ABOUT("about", "About", Icons.Outlined.Info);
@@ -137,6 +140,7 @@ enum class SettingsSection(val key: String, val title: String, val icon: ImageVe
         SOUND -> listOfNotNull(if (s.lossless) "Lossless" else s.audioQuality.label + " quality", if (s.spatial) "Meow Spatial" else null, if (s.eq.enabled) "EQ ${s.eq.preset}" else null, if (s.normalize) "Normalized" else null).joinToString(" · ")
         LYRICS -> "${s.lyricsOrder.first().label} first · ${if (s.preferSynced) "synced preferred" else "any lyrics"}"
         DOWNLOADS -> listOfNotNull(if (s.smartDownloads) "Smart downloads ${formatGb(s.smartDownloadGb)}" else null, if (s.downloadWifiOnly) "Wi-Fi only" else "Any network").joinToString(" · ")
+        LIVEROOM -> if (s.showLiveRoomNavBadge) "Floating badge in nav bar · Wi-Fi" else "1-tap listening on Wi-Fi"
         HOME -> "Sections, order and styles"
         LIBRARY -> "${s.libraryView.label} view · ${if (s.replayHours) "hours" else "minutes"}"
         ABOUT -> "Meow ${com.meow.music.BuildConfig.VERSION_NAME}"
@@ -147,7 +151,7 @@ enum class SettingsSection(val key: String, val title: String, val icon: ImageVe
 
 private val hubGroups = listOf(
     "Look & feel" to listOf(SettingsSection.APPEARANCE, SettingsSection.INTERFACE, SettingsSection.PLAYER),
-    "Listening" to listOf(SettingsSection.SOUND, SettingsSection.LYRICS, SettingsSection.DOWNLOADS),
+    "Listening" to listOf(SettingsSection.SOUND, SettingsSection.LYRICS, SettingsSection.DOWNLOADS, SettingsSection.LIVEROOM),
     "Your Meow" to listOf(SettingsSection.HOME, SettingsSection.LIBRARY),
     "" to listOf(SettingsSection.ABOUT),
 )
@@ -185,6 +189,7 @@ fun SettingsScreen(bottomPadding: Dp, section: SettingsSection? = null) {
             SettingsSection.SOUND -> item { SoundPage() }
             SettingsSection.LYRICS -> item { LyricsSettings() }
             SettingsSection.DOWNLOADS -> item { DownloadSettings() }
+            SettingsSection.LIVEROOM -> item { LiveRoomSettings() }
             SettingsSection.HOME -> item {
                 Group("Home") {
                     Item("Customize Home", "Reorder, hide and restyle Home's sections, shortcuts and greeting", onClick = { nav.go(Routes.CATALOGUE) }) { Chevron() }
@@ -1195,7 +1200,7 @@ private fun AboutSection() {
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Developer Contributor & Helper",
+                        "Developer, Contributor & Helper",
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant
                     )
@@ -1248,6 +1253,23 @@ private fun AboutSection() {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LiveRoomSettings() {
+    val c = LocalContainer.current
+    val s = LocalAppSettings.current
+    val nav = LocalNavigator.current
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Group("Live Room Setup") {
+            Item("Open Live Room Screen", "Start hosting or join a room on local Wi-Fi", onClick = { nav.go(Routes.TOGETHER) }) { Chevron() }
+            Toggle("Show badge in navigation bar", "Display a small floating Live Room status logo next to the navigation bar", s.showLiveRoomNavBadge) { c.settings.setShowLiveRoomNavBadge(it) }
+        }
+        Group("Features & Security") {
+            Item("1-Tap Open Join", "Friends on your Wi-Fi join automatically without entering a PIN", onClick = {})
+            Item("Local Network Privacy", "P2P socket streaming without external servers or cloud accounts", onClick = {})
         }
     }
 }

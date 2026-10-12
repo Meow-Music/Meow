@@ -623,6 +623,7 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
     }
 
     if (showProviders) LyricsProviderSheet(lyricsState) { showProviders = false }
+    if (lyricsState.editingCustom) CustomLyricsEditorSheet(lyricsState) { lyricsState.editingCustom = false }
     if (showActions) PlayerOptionsSheet(
         song,
         hasCanvas = songCanvas != null,

@@ -34,6 +34,7 @@ enum class CarLyricsStyle(val label: String, val detail: String) {
 }
 
 enum class LyricsSource(val label: String) {
+    CUSTOM("Custom"),
     APPLE("Better Lyrics"),
     LYRICSPLUS("LyricsPlus"),
     BINI("Bini"),
@@ -49,7 +50,7 @@ enum class LyricsSource(val label: String) {
 /** Tiles in Home's greeting section. */
 enum class HomeShortcut(val label: String) {
     LIKED("Liked songs"), DOWNLOADS("Downloads"), REPLAY("Replay"), LIBRARY("Library"),
-    MOODS("Moods & genres"), SEARCH("Search"), EQUALIZER("Equalizer"), TOGETHER("Listen together"),
+    MOODS("Moods & genres"), SEARCH("Search"), EQUALIZER("Equalizer"), TOGETHER("Live Room"),
 }
 
 /** A playlist pinned to Home's greeting tiles. */
@@ -160,7 +161,7 @@ object HomeSections {
 
 /** The order lyric sources are tried in on a fresh install. */
 val defaultLyricsOrder = listOf(
-    LyricsSource.KUGOU, LyricsSource.QQ, LyricsSource.APPLE, LyricsSource.LYRICSPLUS, LyricsSource.BINI, LyricsSource.YTMUSIC,
+    LyricsSource.CUSTOM, LyricsSource.KUGOU, LyricsSource.QQ, LyricsSource.APPLE, LyricsSource.LYRICSPLUS, LyricsSource.BINI, LyricsSource.YTMUSIC,
     LyricsSource.NETEASE, LyricsSource.LRCLIB, LyricsSource.UNISON, LyricsSource.GENIUS,
 )
 
@@ -288,6 +289,7 @@ data class AppSettings(
     val frostedPages: Boolean = true,
     val replayThemeColors: Boolean = false,
     val appIconType: AppIconType = AppIconType.DEFAULT,
+    val showLiveRoomNavBadge: Boolean = true,
 ) {
     val isLoggedIn: Boolean get() = cookie.contains("SAPISID")
 
@@ -391,6 +393,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val playlistHeroCover = booleanPreferencesKey("playlist_hero_cover")
         val frostedPages = booleanPreferencesKey("frosted_pages")
         val replayThemeColors = booleanPreferencesKey("replay_theme_colors")
+        val showLiveRoomNavBadge = booleanPreferencesKey("show_live_room_nav_badge")
 
         /** Everything the "Reset look" button puts back. */
         val look: List<Preferences.Key<*>> by lazy {
@@ -511,6 +514,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             frostedPages = p[K.frostedPages] ?: d.frostedPages,
             replayThemeColors = p[K.replayThemeColors] ?: d.replayThemeColors,
             appIconType = p.enum(K.appIconType, d.appIconType),
+            showLiveRoomNavBadge = p[K.showLiveRoomNavBadge] ?: d.showLiveRoomNavBadge,
         )
     }
 
@@ -640,6 +644,7 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setFrostedPages(v: Boolean) = edit { it[K.frostedPages] = v }
     fun setReplayThemeColors(v: Boolean) = edit { it[K.replayThemeColors] = v }
     fun setAppIconType(v: AppIconType) = edit { it[K.appIconType] = v.name }
+    fun setShowLiveRoomNavBadge(v: Boolean) = edit { it[K.showLiveRoomNavBadge] = v }
 
     /** Puts every look & layout option back to how Meow ships (colours and backgrounds are left alone). */
     @Suppress("UNCHECKED_CAST")

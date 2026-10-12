@@ -43,7 +43,14 @@ sealed interface TogetherState {
     data object Idle : TogetherState
 
     /** This phone is the session: guests join it with [code]. [address] is for joining by hand. */
-    data class Hosting(val code: String, val address: String?, val port: Int, val guests: List<String>, val guestsControl: Boolean) : TogetherState
+    data class Hosting(
+        val code: String,
+        val address: String?,
+        val port: Int,
+        val guests: List<String>,
+        val guestsControl: Boolean,
+        val isPrivate: Boolean = false,
+    ) : TogetherState
 
     data class Joining(val hostName: String) : TogetherState
 
@@ -56,7 +63,13 @@ sealed interface TogetherState {
 }
 
 /** A session found on the local network. */
-data class NearbySession(val name: String, val host: String, val port: Int, val key: String)
+data class NearbySession(
+    val name: String,
+    val host: String,
+    val port: Int,
+    val key: String,
+    val isPrivate: Boolean = false,
+)
 
 /**
  * Listen Together: phones on the same Wi-Fi (or one's hotspot) listen to the same thing. One phone
@@ -93,18 +106,18 @@ class Together(private val app: Application, private val c: AppContainer) {
     private var pending: Job? = null
     @Volatile private var starting = false
 
-    fun host() {
+    fun host(isPrivate: Boolean = false) {
         if (_state.value !is TogetherState.Idle || starting) return
         starting = true
         stopDiscovery()
         scope.launch {
-            code = (1000..9999).random().toString()
+            code = if (isPrivate) (1000..9999).random().toString() else Msg.OPEN_CODE
             val ss = runCatching { ServerSocket(PORT) }.getOrNull() ?: runCatching { ServerSocket(0) }.getOrNull()
             starting = false
             if (ss == null) { _events.tryEmit("Couldn't start a session on this network"); return@launch }
             server = ss
-            _state.value = TogetherState.Hosting(code, localAddress(), ss.localPort, emptyList(), guestsControl)
-            register(ss.localPort)
+            _state.value = TogetherState.Hosting(code, localAddress(), ss.localPort, emptyList(), guestsControl, isPrivate)
+            register(ss.localPort, isPrivate)
             hostJobs += scope.launch { acceptLoop(ss) }
             hostJobs += scope.launch { watchPlayer() }
         }
@@ -135,10 +148,16 @@ class Together(private val app: Application, private val c: AppContainer) {
         socket.soTimeout = 8_000
         val hello = runCatching { link.read() }.getOrNull() as? Msg.Hello
         socket.soTimeout = 0
+        val helloCode = hello?.code?.trim().orEmpty()
+        val codeMatches = when {
+            code == Msg.OPEN_CODE -> true
+            helloCode.equals(code, ignoreCase = true) -> true
+            else -> false
+        }
         when {
             hello == null -> { link.close(); return }
             hello.version != Msg.VERSION -> { link.send(Msg.Denied("Both phones need the latest Meow")); link.close(); return }
-            hello.code.trim() != code -> {
+            !codeMatches -> {
                 delay(700) // makes guessing codes slow
                 link.send(Msg.Denied("That code doesn't match. Check the one on the host's screen."))
                 link.close()
@@ -242,10 +261,11 @@ class Together(private val app: Application, private val c: AppContainer) {
         )
     }
 
-    private fun register(port: Int) {
+    private fun register(port: Int, isPrivate: Boolean = false) {
         val manager = nsd ?: return
+        val prefix = if (isPrivate) "$NAME_PREFIX[PIN] " else NAME_PREFIX
         val info = NsdServiceInfo().apply {
-            serviceName = "$NAME_PREFIX$myName"
+            serviceName = "$prefix$myName"
             serviceType = SERVICE
             setPort(port)
         }
@@ -319,7 +339,10 @@ class Together(private val app: Application, private val c: AppContainer) {
                     }
                 } ?: return@withLock
                 val host = addressOf(resolved) ?: return@withLock
-                val found = NearbySession(resolved.serviceName.removePrefix(NAME_PREFIX), host, resolved.port, resolved.serviceName)
+                val rawName = resolved.serviceName.removePrefix(NAME_PREFIX)
+                val isPrivate = rawName.startsWith("[PIN] ")
+                val cleanName = rawName.removePrefix("[PIN] ").trim()
+                val found = NearbySession(cleanName, host, resolved.port, resolved.serviceName, isPrivate)
                 _nearby.value = _nearby.value.filterNot { it.key == found.key } + found
             }
         }
@@ -343,6 +366,12 @@ class Together(private val app: Application, private val c: AppContainer) {
     private var hostName = ""
     /** Where to reconnect after a dropped connection: host, port, code. */
     private var target: Triple<String, Int, String>? = null
+
+    /** Instant 1-tap join for an open session nearby. */
+    suspend fun joinSession(session: NearbySession, pinCode: String = ""): String? {
+        val codeToUse = if (session.isPrivate) pinCode else Msg.OPEN_CODE
+        return join(session.host, session.port, codeToUse, session.name)
+    }
 
     /** Joins the session at [host]:[port] with its [code]. Returns why not, or null once in. */
     suspend fun join(host: String, port: Int, code: String, label: String): String? = withContext(Dispatchers.IO) {
