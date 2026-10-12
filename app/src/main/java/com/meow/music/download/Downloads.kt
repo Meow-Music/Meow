@@ -323,7 +323,7 @@ class MeowDownloadService : DownloadService(
 
     override fun getForegroundNotification(downloads: MutableList<Download>, notMetRequirements: Int): Notification =
         DownloadNotificationHelper(this, DOWNLOAD_CHANNEL)
-            .buildProgressNotification(this, R.drawable.ic_notification, null, null, downloads, notMetRequirements)
+            .buildProgressNotification(this, R.drawable.default_logo, null, null, downloads, notMetRequirements)
 }
 
 /** Sizes offered for smart downloads, in GB. */

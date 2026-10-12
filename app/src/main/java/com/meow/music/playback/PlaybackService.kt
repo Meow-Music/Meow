@@ -156,7 +156,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
             )
             .build()
         setMediaNotificationProvider(DefaultMediaNotificationProvider.Builder(this).build().apply {
-            setSmallIcon(R.drawable.ic_notification)
+            setSmallIcon(R.drawable.default_logo)
         })
         // Keep the media notification (and the system media controls) up for a
         // paused or restored queue, not only while audio is actively playing.
