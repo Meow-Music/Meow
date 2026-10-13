@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Settings
@@ -223,6 +224,7 @@ private data class Tab(val route: String, val label: String, val icon: ImageVect
 private fun NavTab.tab(): Tab = when (this) {
     NavTab.HOME -> Tab(Routes.HOME, label, Icons.Outlined.Home, Icons.Rounded.Home)
     NavTab.SEARCH -> Tab(Routes.SEARCH, label, Icons.Rounded.Search, Icons.Rounded.Search)
+    NavTab.TOGETHER -> Tab(Routes.TOGETHER, label, Icons.Outlined.Groups, Icons.Rounded.Groups)
     NavTab.LIBRARY -> Tab(Routes.LIBRARY, label, Icons.Outlined.LibraryMusic, Icons.Rounded.LibraryMusic)
     NavTab.REPLAY -> Tab(Routes.REPLAY, label, Icons.Outlined.AutoAwesome, Icons.Rounded.AutoAwesome)
     NavTab.SETTINGS -> Tab(Routes.SETTINGS, label, Icons.Outlined.Settings, Icons.Rounded.Settings)
@@ -309,13 +311,15 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
         val tabs = settings.navTabs.map { it.tab() }
 
         val together by c.together.state.collectAsState()
+        val nearby by c.together.nearby.collectAsState()
         val inSession = together is com.meow.music.playback.together.TogetherState.Hosting || together is com.meow.music.playback.together.TogetherState.Guest
+        val hasLiveRoomBadge = settings.showLiveRoomNavBadge && (inSession || nearby.isNotEmpty())
         // Room the pages leave at the bottom for the bar, the mini player and the system's own bar.
         val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val bottomPadding = navInset + navHeight(settings.navStyle) +
-            (if (settings.navStyle == NavBarStyle.DOCKED) 0.dp else 16.dp) +
-            (if (song != null) miniHeight(settings.miniPlayerStyle) + 8.dp else 0.dp) +
-            (if (inSession) 42.dp else 0.dp)
+                (if (settings.navStyle == NavBarStyle.DOCKED) 0.dp else 16.dp) +
+                (if (song != null) miniHeight(settings.miniPlayerStyle) + 8.dp else 0.dp) +
+                (if (inSession) 42.dp else 0.dp)
 
         // Decided once: the tab Meow opens on is the root every other tab sits on, and the welcome
         // screen is a real destination, so signing in from it navigates inside a graph that already exists.
@@ -380,7 +384,17 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
         CompositionLocalProvider(LocalNavigator provides navigator, LocalHazeState provides haze) {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 Box(Modifier.fillMaxSize().nestedScroll(barScroll).hazeSource(haze)) {
-                    NavHost(navController, startDestination = start) {
+                    // The same cross-fade both ways, and for the back gesture too: left to its default,
+                    // a predictive back (swipe from the edge) shrinks the page like a card instead.
+                    NavHost(
+                        navController, startDestination = start,
+                        enterTransition = { fadeIn(tween(700)) },
+                        exitTransition = { fadeOut(tween(700)) },
+                        popEnterTransition = { fadeIn(tween(700)) },
+                        popExitTransition = { fadeOut(tween(700)) },
+                        predictivePopEnterTransition = { fadeIn(tween(700)) },
+                        predictivePopExitTransition = { fadeOut(tween(700)) },
+                    ) {
                         composable(Routes.WELCOME) {
                             WelcomeScreen(
                                 onSignIn = { navController.navigate(Routes.LOGIN) },
@@ -445,7 +459,7 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                             .then(if (docked) Modifier else Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)),
                     ) {
-                        AnimatedVisibility(inSession && !playerOpen && route != Routes.TOGETHER, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
+                        AnimatedVisibility(inSession && settings.showLiveRoomNavBadge && !playerOpen && route != Routes.TOGETHER, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
                             TogetherPill(together, Modifier.padding(bottom = 8.dp)) { navigator.go(Routes.TOGETHER) }
                         }
                         AnimatedVisibility(song != null && !playerOpen, enter = slideInVertically { it } + fadeIn(), exit = slideOutVertically { it } + fadeOut()) {
@@ -453,7 +467,7 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                                 Modifier.padding(bottom = 8.dp).then(if (docked) Modifier.padding(horizontal = 10.dp) else Modifier),
                             ) { playerOpen = true }
                         }
-                        TabBar(tabs, route, barT, settings, inSession, selectTab) { navigator.go(Routes.TOGETHER) }
+                        TabBar(tabs, route, barT, settings, hasLiveRoomBadge, selectTab)
                     }
                 }
 
@@ -473,14 +487,11 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
 @Composable
 private fun TogetherPill(state: com.meow.music.playback.together.TogetherState, modifier: Modifier, onClick: () -> Unit) {
     val (icon, text) = when (state) {
-        is com.meow.music.playback.together.TogetherState.Hosting -> {
-            val countStr = when (state.guests.size) { 0 -> ""; 1 -> " · 1 listener"; else -> " · ${state.guests.size} listeners" }
-            val roomType = if (state.code == com.meow.music.playback.together.Msg.OPEN_CODE) "⚡ Live Room" else "🔒 PIN ${state.code}"
-            Icons.Rounded.WifiTethering to "$roomType$countStr"
-        }
+        is com.meow.music.playback.together.TogetherState.Hosting ->
+            Icons.Rounded.WifiTethering to "Hosting · code ${state.code}" + when (state.guests.size) { 0 -> ""; 1 -> " · 1 listening"; else -> " · ${state.guests.size} listening" }
         is com.meow.music.playback.together.TogetherState.Guest ->
-            Icons.Rounded.Groups to "Live Room · With ${state.hostName}" + when {
-                !state.listenHere -> " · queue mode"
+            Icons.Rounded.Groups to "With ${state.hostName}" + when {
+                !state.listenHere -> " · adding songs"
                 !state.inSync -> " · out of step"
                 else -> ""
             }
@@ -489,7 +500,7 @@ private fun TogetherPill(state: com.meow.music.playback.together.TogetherState, 
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         GlassSurface(Modifier.height(34.dp), shape = RoundedCornerShape(17.dp), elevation = 4.dp) {
             Row(
-                Modifier.fillMaxHeight().clickable(onClickLabel = "Open Live Room", onClick = onClick).padding(horizontal = 14.dp),
+                Modifier.fillMaxHeight().clickable(onClickLabel = "Open Listen together", onClick = onClick).padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(icon, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
@@ -505,103 +516,110 @@ private fun isSelected(tab: Tab, route: String?): Boolean =
 
 /** @param compact 0 = full bar, 1 = slim bar (while scrolling down). */
 @Composable
-private fun TabBar(
-    tabs: List<Tab>,
-    route: String?,
-    compact: Float,
-    settings: AppSettings,
-    inSession: Boolean,
-    onSelect: (String) -> Unit,
-    onLiveRoomClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(modifier = Modifier.weight(1f, fill = false), contentAlignment = Alignment.Center) {
-            when (settings.navStyle) {
-                NavBarStyle.FLOATING -> {
-                    val height = lerp(64.dp, 50.dp, compact)
-                    GlassSurface(Modifier.fillMaxWidth(1f - 0.25f * compact).height(height), shape = RoundedCornerShape(height / 2)) {
-                        Row(Modifier.fillMaxSize().padding(lerp(6.dp, 4.dp, compact)), verticalAlignment = Alignment.CenterVertically) {
-                            tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
-                        }
-                    }
-                }
-                NavBarStyle.DOCKED -> {
-                    GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), elevation = 4.dp) {
-                        Row(
-                            Modifier.fillMaxWidth().navigationBarsPadding().height(lerp(62.dp, 50.dp, compact)).padding(horizontal = 8.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            tabs.forEach { tab -> TabItem(tab, isSelected(tab, route), settings.navLabels, compact, Modifier.weight(1f).fillMaxHeight()) { onSelect(tab.route) } }
-                        }
-                    }
-                }
-                NavBarStyle.MINIMAL -> {
-                    GlassSurface(Modifier.height(54.dp), shape = RoundedCornerShape(27.dp)) {
-                        Row(Modifier.fillMaxHeight().padding(5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                            tabs.forEach { tab -> MinimalTab(tab, isSelected(tab, route)) { onSelect(tab.route) } }
+private fun TabBar(tabs: List<Tab>, route: String?, compact: Float, settings: AppSettings, hasLiveRoomBadge: Boolean, onSelect: (String) -> Unit) {
+    when (settings.navStyle) {
+        NavBarStyle.FLOATING -> {
+            val height = lerp(64.dp, 50.dp, compact)
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                GlassSurface(Modifier.fillMaxWidth(1f - 0.30f * compact).height(height), shape = RoundedCornerShape(height / 2)) {
+                    Row(Modifier.fillMaxSize().padding(lerp(6.dp, 4.dp, compact)), verticalAlignment = Alignment.CenterVertically) {
+                        tabs.forEach { tab ->
+                            TabItem(
+                                tab = tab,
+                                selected = isSelected(tab, route),
+                                labels = settings.navLabels,
+                                compact = compact,
+                                showBadge = hasLiveRoomBadge && tab.route == Routes.TOGETHER,
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            ) { onSelect(tab.route) }
                         }
                     }
                 }
             }
         }
-        if (settings.showLiveRoomNavBadge) {
-            Spacer(Modifier.width(6.dp))
-            LiveRoomNavBadge(inSession = inSession, onClick = onLiveRoomClick)
+        NavBarStyle.DOCKED -> {
+            GlassSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp), elevation = 4.dp) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding().height(lerp(62.dp, 50.dp, compact)).padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    tabs.forEach { tab ->
+                        TabItem(
+                            tab = tab,
+                            selected = isSelected(tab, route),
+                            labels = settings.navLabels,
+                            compact = compact,
+                            showBadge = hasLiveRoomBadge && tab.route == Routes.TOGETHER,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        ) { onSelect(tab.route) }
+                    }
+                }
+            }
+        }
+        NavBarStyle.MINIMAL -> {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                GlassSurface(Modifier.height(54.dp), shape = RoundedCornerShape(27.dp)) {
+                    Row(Modifier.fillMaxHeight().padding(5.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        tabs.forEach { tab ->
+                            MinimalTab(
+                                tab = tab,
+                                selected = isSelected(tab, route),
+                                showBadge = hasLiveRoomBadge && tab.route == Routes.TOGETHER,
+                            ) { onSelect(tab.route) }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun LiveRoomNavBadge(inSession: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .background(if (inSession) scheme.primaryContainer else scheme.surfaceContainerHigh.copy(alpha = 0.9f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Groups,
-            contentDescription = "Live Room",
-            tint = if (inSession) scheme.onPrimaryContainer else scheme.primary,
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
-@Composable
-private fun TabItem(tab: Tab, selected: Boolean, labels: NavLabels, compact: Float, modifier: Modifier, onClick: () -> Unit) {
+private fun TabItem(
+    tab: Tab,
+    selected: Boolean,
+    labels: NavLabels,
+    compact: Float,
+    showBadge: Boolean = false,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
     val scheme = MaterialTheme.colorScheme
     val fg = if (selected) scheme.primary else scheme.onSurfaceVariant
     val indicator by animateColorAsState(if (selected) scheme.primary.copy(alpha = 0.16f) else Color.Transparent, label = "tab")
     val click = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = tab.label, onClick = onClick)
     val icon = if (selected) tab.selectedIcon else tab.icon
+    val iconContent = @Composable {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(icon, tab.label, tint = fg, modifier = Modifier.size(24.dp))
+            if (showBadge) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(scheme.primary, CircleShape)
+                )
+            }
+        }
+    }
     when (labels) {
         NavLabels.ALWAYS -> Column(
             modifier.clip(RoundedCornerShape(28.dp)).background(indicator).then(click),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Icon(icon, tab.label, tint = fg, modifier = Modifier.size(24.dp))
+            iconContent()
             if (compact < 0.98f) Text(
                 tab.label, color = fg, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 modifier = Modifier.height(lerp(16.dp, 0.dp, compact)).graphicsLayer { alpha = (1f - compact * 1.6f).coerceIn(0f, 1f) },
             )
         }
-        // The picked tab grows into a capsule with its name beside the icon.
         NavLabels.SELECTED -> Box(modifier.then(click), contentAlignment = Alignment.Center) {
             Row(
                 Modifier.height(40.dp).clip(CircleShape).background(indicator).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(icon, tab.label, tint = fg, modifier = Modifier.size(22.dp))
+                iconContent()
                 AnimatedVisibility(selected && compact < 0.5f, enter = expandHorizontally() + fadeIn(), exit = shrinkHorizontally() + fadeOut()) {
                     Row {
                         Spacer(Modifier.width(6.dp))
@@ -612,14 +630,14 @@ private fun TabItem(tab: Tab, selected: Boolean, labels: NavLabels, compact: Flo
         }
         NavLabels.NEVER -> Box(modifier.then(click), contentAlignment = Alignment.Center) {
             Box(Modifier.size(52.dp, 40.dp).clip(CircleShape).background(indicator), contentAlignment = Alignment.Center) {
-                Icon(icon, tab.label, tint = fg, modifier = Modifier.size(24.dp))
+                iconContent()
             }
         }
     }
 }
 
 @Composable
-private fun MinimalTab(tab: Tab, selected: Boolean, onClick: () -> Unit) {
+private fun MinimalTab(tab: Tab, selected: Boolean, showBadge: Boolean = false, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val bg by animateColorAsState(if (selected) scheme.onSurface else Color.Transparent, label = "minTab")
     Box(
@@ -627,22 +645,33 @@ private fun MinimalTab(tab: Tab, selected: Boolean, onClick: () -> Unit) {
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = tab.label, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(if (selected) tab.selectedIcon else tab.icon, tab.label, tint = if (selected) scheme.surface else scheme.onSurfaceVariant, modifier = Modifier.size(23.dp))
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(if (selected) tab.selectedIcon else tab.icon, tab.label, tint = if (selected) scheme.surface else scheme.onSurfaceVariant, modifier = Modifier.size(23.dp))
+            if (showBadge) {
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(if (selected) scheme.surface else scheme.primary, CircleShape)
+                )
+            }
+        }
     }
 }
 
-/** Opens music.youtube.com links shared into the app. */
+/** Opens music.youtube.com links shared into the app, or room QR codes. */
 private fun handleDeepLink(uri: Uri, nav: Navigator, c: AppContainer) {
     val v = uri.getQueryParameter("v")
     val list = uri.getQueryParameter("list")
-    val code = uri.getQueryParameter("code") ?: uri.getQueryParameter("pin")
     val path = uri.pathSegments
+    val isRoom = uri.scheme == "meow" && (uri.host == "room" || uri.authority == "room" || path.firstOrNull() == "room")
     when {
-        uri.scheme == "meow" || code != null -> {
-            val roomCode = code ?: path.lastOrNull().orEmpty()
-            if (roomCode.isNotBlank()) {
-                nav.go(Routes.TOGETHER)
-                c.scope.launch { c.together.joinWithCode(roomCode) }
+        isRoom -> {
+            nav.go(Routes.TOGETHER)
+            val host = uri.getQueryParameter("host")
+            if (!host.isNullOrBlank()) {
+                val port = uri.getQueryParameter("port")?.toIntOrNull() ?: com.meow.music.playback.together.Together.PORT
+                val code = uri.getQueryParameter("code") ?: com.meow.music.playback.together.Msg.OPEN_CODE
+                c.scope.launch { c.together.join(host, port, code, host) }
             }
         }
         v != null -> {
@@ -663,6 +692,3 @@ private fun launchSingle(c: AppContainer, videoId: String) = c.scope.launch {
     val song = r?.songs?.firstOrNull { it.id == videoId } ?: Song(videoId, "Loading…")
     withContext(Dispatchers.Main) { c.player.playSingle(song) }
 }
-
-
-

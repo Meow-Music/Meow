@@ -80,7 +80,7 @@ enum class NavBarStyle(val label: String) { FLOATING("Floating"), DOCKED("Docked
 enum class NavLabels(val label: String) { ALWAYS("Always"), SELECTED("Selected"), NEVER("Never") }
 
 /** Tabs the bottom bar can hold. */
-enum class NavTab(val label: String) { HOME("Home"), SEARCH("Search"), LIBRARY("Library"), REPLAY("Replay"), SETTINGS("Settings") }
+enum class NavTab(val label: String) { HOME("Home"), SEARCH("Search"), TOGETHER("Join Room"), LIBRARY("Library"), REPLAY("Replay"), SETTINGS("Settings") }
 
 enum class MiniPlayerStyle(val label: String) { CARD("Card"), SLIM("Slim"), PILL("Pill") }
 enum class MiniProgress(val label: String) { LINE("Line"), FILL("Fill"), NONE("None") }
@@ -265,7 +265,7 @@ data class AppSettings(
     val navStyle: NavBarStyle = NavBarStyle.FLOATING,
     val navLabels: NavLabels = NavLabels.ALWAYS,
     val navHideOnScroll: Boolean = true,
-    val navTabs: List<NavTab> = listOf(NavTab.HOME, NavTab.LIBRARY, NavTab.SEARCH, NavTab.SETTINGS),
+    val navTabs: List<NavTab> = listOf(NavTab.HOME, NavTab.SEARCH, NavTab.TOGETHER, NavTab.LIBRARY, NavTab.SETTINGS),
     val startTab: NavTab = NavTab.HOME,
     val miniPlayerStyle: MiniPlayerStyle = MiniPlayerStyle.CARD,
     val miniSkipButtons: Boolean = true,

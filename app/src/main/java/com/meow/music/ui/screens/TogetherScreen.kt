@@ -1,7 +1,6 @@
 package com.meow.music.ui.screens
 
-import android.content.Context
-import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,20 +14,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.QrCode
-import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material.icons.rounded.WifiTethering
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -53,17 +54,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.meow.music.data.model.Song
 import com.meow.music.playback.together.Msg
 import com.meow.music.playback.together.NearbySession
@@ -74,6 +73,7 @@ import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.Routes
 import com.meow.music.ui.components.Artwork
 import com.meow.music.ui.components.Eyebrow
+import com.meow.music.ui.components.LocalFrosted
 import com.meow.music.ui.components.SubPage
 import com.meow.music.ui.components.featureInk
 import com.meow.music.ui.components.featurePane
@@ -83,14 +83,14 @@ import com.meow.music.ui.theme.LocalUi
 import kotlinx.coroutines.launch
 
 /**
- * Listen Together (Live Room): host a room or join one instantly via 4-digit PIN or QR code.
- * Works seamlessly across local Wi-Fi or global internet (e.g. UAE to Nepal).
+ * Listen Together (Live Room): host a room on this phone or join one nearby on Wi-Fi.
+ * Recreated for instant 1-tap setup, compact QR Code sharing, and zero-friction listening.
  */
 @Composable
 fun TogetherScreen(bottomPadding: Dp) {
     val c = LocalContainer.current
     val state by c.together.state.collectAsState()
-    SubPage("Live Room", bottomPadding, horizontalPadding = 16.dp, spacing = 18.dp, subtitle = "Listen live with friends anywhere in the world") {
+    SubPage("Join Room", bottomPadding, horizontalPadding = 16.dp, spacing = 18.dp, subtitle = "Instant listening with friends on same Wi-Fi") {
         when (val s = state) {
             TogetherState.Idle -> item("idle") { Idle() }
             is TogetherState.Joining -> item("joining") { Joining(s.hostName) }
@@ -103,11 +103,9 @@ fun TogetherScreen(bottomPadding: Dp) {
 
 @Composable
 private fun Idle() {
-    val context = LocalContext.current
     val c = LocalContainer.current
     val nearby by c.together.nearby.collectAsState()
     val scope = rememberCoroutineScope()
-    var pinInput by remember { mutableStateOf("") }
     var joinTarget by remember { mutableStateOf<NearbySession?>(null) }
     var manual by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -118,7 +116,7 @@ private fun Idle() {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        // Instant Join via 4-Digit PIN or QR Scanner
+        // Hero Card: 1-Tap Instant Room Creation
         Column(
             Modifier
                 .fillMaxWidth()
@@ -137,55 +135,18 @@ private fun Idle() {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("Join a Live Room", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = featureInk())
-                    Text("Enter 4-digit PIN or Scan QR Code", style = MaterialTheme.typography.labelMedium, color = featureInk().copy(alpha = 0.75f))
+                    Text("Instant Live Room", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = featureInk())
+                    Text(" Open & Join on local Wi-Fi", style = MaterialTheme.typography.labelMedium, color = featureInk().copy(alpha = 0.75f))
                 }
             }
-            Spacer(Modifier.height(14.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedTextField(
-                    value = pinInput,
-                    onValueChange = { pinInput = it.filter { c -> c.isLetterOrDigit() }.take(6).uppercase() },
-                    placeholder = { Text("4-Digit PIN") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        if (pinInput.isNotBlank()) {
-                            scope.launch { error = c.together.joinWithCode(pinInput) }
-                        }
-                    },
-                    enabled = pinInput.length >= 4,
-                ) {
-                    Text("Join")
-                }
-                IconButton(
-                    onClick = {
-                        launchQrScanner(context, onCodeFound = { code ->
-                            pinInput = code
-                            scope.launch { error = c.together.joinWithCode(code) }
-                        }, onError = { err ->
-                            error = err
-                        })
-                    },
-                ) {
-                    Icon(Icons.Rounded.QrCodeScanner, contentDescription = "Scan QR Code", modifier = Modifier.size(28.dp))
-                }
-            }
-        }
-
-        // Host a Room Card
-        Group("Host a Live Room") {
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Start a room immediately. Friends on your Wi-Fi see your room and join with single tap!",
+                style = MaterialTheme.typography.bodyMedium,
+                color = featureInk().copy(alpha = 0.85f),
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = { c.together.host(isPrivate = false) },
                     modifier = Modifier.weight(1f),
@@ -196,7 +157,6 @@ private fun Idle() {
                 }
                 OutlinedButton(
                     onClick = { c.together.host(isPrivate = true) },
-                    modifier = Modifier.weight(1f),
                 ) {
                     Icon(Icons.Rounded.Lock, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
@@ -205,8 +165,8 @@ private fun Idle() {
             }
         }
 
-        // Nearby Wi-Fi Rooms
-        Group("Live Rooms nearby (Local Wi-Fi)") {
+        // Nearby Sessions Group
+        Group("Live Rooms nearby") {
             if (nearby.isEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -246,7 +206,7 @@ private fun Idle() {
                         Column(Modifier.weight(1f)) {
                             Text(n.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                             Text(
-                                if (n.isPrivate) "Requires PIN" else "Open Room • 1-Tap Join",
+                                if (n.isPrivate) "Requires 4-digit PIN" else "Open Room • 1-Tap Join",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -265,7 +225,7 @@ private fun Idle() {
                     }
                 }
             }
-            Item("Advanced: Manual IP Join", "Join with custom IP address & port", onClick = { manual = true })
+            Item("Manual IP Join", "Join with custom IP address", onClick = { manual = true })
         }
 
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 8.dp)) }
@@ -281,42 +241,10 @@ private fun Idle() {
         manual = false
         val host = address.substringBefore(':').trim()
         val port = address.substringAfter(':', "").trim().toIntOrNull() ?: Together.PORT
-        scope.launch { error = c.together.join(host, port, code.ifBlank { Msg.OPEN_CODE }, host) }
+        if (host.isNotBlank()) {
+            scope.launch { error = c.together.join(host, port, code.ifBlank { Msg.OPEN_CODE }, host) }
+        }
     }
-}
-
-private fun launchQrScanner(context: Context, onCodeFound: (String) -> Unit, onError: (String) -> Unit) {
-    runCatching {
-        val options = GmsBarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-            .build()
-        val scanner = GmsBarcodeScanning.getClient(context, options)
-        scanner.startScan()
-            .addOnSuccessListener { barcode ->
-                val raw = barcode.rawValue.orEmpty()
-                val code = parseRoomCodeFromQr(raw)
-                if (code.isNotBlank()) {
-                    onCodeFound(code)
-                } else {
-                    onError("No room code found in QR")
-                }
-            }
-            .addOnFailureListener { e ->
-                onError("Scanner: ${e.localizedMessage ?: "Failed to open camera"}")
-            }
-    }.onFailure { e ->
-        onError("Google Code Scanner unavailable")
-    }
-}
-
-private fun parseRoomCodeFromQr(raw: String): String {
-    val trimmed = raw.trim()
-    if (trimmed.startsWith("meow://", ignoreCase = true) || trimmed.contains("code=", ignoreCase = true)) {
-        val uri = runCatching { Uri.parse(trimmed) }.getOrNull()
-        val codeParam = uri?.getQueryParameter("code")
-        if (!codeParam.isNullOrBlank()) return codeParam
-    }
-    return trimmed.filter { it.isLetterOrDigit() }.take(10)
 }
 
 @Composable
@@ -333,12 +261,12 @@ private fun JoinDialog(name: String, askAddress: Boolean, onDismiss: () -> Unit,
                     singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    code, { code = it.filter(Char::isLetterOrDigit).take(6) }, label = { Text("4-Digit PIN") }, singleLine = true,
+                    code, { code = it.filter(Char::isDigit).take(4) }, label = { Text("PIN (if private)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword), modifier = Modifier.fillMaxWidth(),
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { onJoin(address, code) }) { Text("Join") } },
+        confirmButton = { TextButton(onClick = { onJoin(address, code) }, enabled = !askAddress || address.isNotBlank()) { Text("Join") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
@@ -359,20 +287,98 @@ private fun Hosting(s: TogetherState.Hosting) {
     val song by c.player.currentSong.collectAsState()
     val ui = LocalUi.current
     val ink = featureInk()
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     var showQr by remember { mutableStateOf(false) }
+
+    val fullAddress = remember(s.address, s.port) {
+        val ip = s.address ?: "Searching Wi-Fi..."
+        if (s.port != Together.PORT && s.address != null) "$ip:${s.port}" else ip
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Column(
             Modifier.fillMaxWidth().featurePane(ui.card).padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Eyebrow("⚡ Live Room Active", color = ink.copy(alpha = 0.8f))
+            Eyebrow(if (s.isPrivate) "🔒 Private PIN Room Active" else "⚡ Open Live Room Active", color = ink.copy(alpha = 0.8f))
+            Spacer(Modifier.height(8.dp))
+
+            // IP Address & PIN Display Box
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            ) {
+                Row(
+                    Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // IP Address Section
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                if (!s.address.isNullOrBlank()) {
+                                    clipboardManager.setText(AnnotatedString(fullAddress))
+                                    Toast.makeText(context, "IP Address copied: $fullAddress", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.Wifi, null, Modifier.size(15.dp), tint = ink.copy(alpha = 0.8f))
+                            Spacer(Modifier.width(4.dp))
+                            Text("IP Address", style = MaterialTheme.typography.labelMedium, color = ink.copy(alpha = 0.75f), fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            fullAddress,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ink,
+                            maxLines = 1,
+                        )
+                        Text("Tap to copy", style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.6f))
+                    }
+
+                    Box(Modifier.width(1.dp).height(38.dp).background(ink.copy(alpha = 0.2f)))
+
+                    // PIN / Code Section
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                clipboardManager.setText(AnnotatedString(s.code))
+                                Toast.makeText(context, "PIN copied: ${s.code}", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (s.isPrivate) Icons.Rounded.Lock else Icons.Rounded.Key, null, Modifier.size(15.dp), tint = ink.copy(alpha = 0.8f))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (s.isPrivate) "Room PIN" else "Room Code", style = MaterialTheme.typography.labelMedium, color = ink.copy(alpha = 0.75f), fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            s.code,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ink,
+                        )
+                        Text("Tap to copy", style = MaterialTheme.typography.labelSmall, color = ink.copy(alpha = 0.6f))
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
             Text(
-                s.code.toCharArray().joinToString(" "), color = ink,
-                style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black, letterSpacing = 0.08.em),
-            )
-            Text(
-                "Room PIN: ${s.code} • Share this PIN or QR code with friends anywhere (UAE, Nepal, Wi-Fi)",
+                if (s.isPrivate) "Friends enter this IP and PIN in Manual Join." else "Friends on Wi-Fi join automatically, or enter this IP address.",
                 style = MaterialTheme.typography.bodySmall, color = ink.copy(alpha = 0.85f), textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(12.dp))
@@ -386,7 +392,7 @@ private fun Hosting(s: TogetherState.Hosting) {
         NowPlayingCard(song, if (song == null) "Play something to share with room listeners" else "Live in your room right now")
 
         Group("Connected Listeners (${s.guests.size})") {
-            if (s.guests.isEmpty()) Note("Waiting for friends to join via PIN or QR…")
+            if (s.guests.isEmpty()) Note("Waiting for friends to join nearby…")
             s.guests.forEach { g -> Item(g, null, onClick = {}, icon = Icons.Rounded.Headphones) }
             Toggle("Allow guest playback controls", "Guests can play, pause, and skip from their phones.", s.guestsControl) { c.together.setGuestsControl(it) }
         }
@@ -400,7 +406,7 @@ private fun Hosting(s: TogetherState.Hosting) {
     }
 
     if (showQr) {
-        val qrData = "meow://room?code=${s.code}"
+        val qrData = "meow://room?host=${s.address.orEmpty()}&port=${s.port}&code=${s.code}"
         AlertDialog(
             onDismissRequest = { showQr = false },
             title = { Text("Room QR Code", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
@@ -408,7 +414,18 @@ private fun Hosting(s: TogetherState.Hosting) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     QrCodeImage(data = qrData, modifier = Modifier.size(200.dp))
                     Spacer(Modifier.height(12.dp))
-                    Text("Scan with Meow app to join room ${s.code}", style = MaterialTheme.typography.labelLarge)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("IP: $fullAddress", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("PIN / Code: ${s.code}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Scan with phone camera or Meow to join room", style = MaterialTheme.typography.labelMedium)
                 }
             },
             confirmButton = { TextButton(onClick = { showQr = false }) { Text("Close") } },
@@ -499,9 +516,9 @@ private fun QueueLine(song: Song) {
 @Composable
 private fun HowItWorks() {
     Group("How it works") {
-        Note("• Enter a 4-digit PIN or scan a QR code to join a room anywhere in the world.")
-        Note("• Works on local Wi-Fi or across different networks/countries (e.g. UAE to Nepal).")
-        Note("• Real-time audio sync keeps everyone listening to the exact same track.")
+        Note("• Everyone needs Meow on the same Wi-Fi network or hotspot.")
+        Note("• Open Rooms allow friends to join instantly with 1 tap.")
+        Note("• Direct P2P local connections mean zero server lag and zero data leaks.")
         Spacer(Modifier.height(6.dp))
     }
 }
