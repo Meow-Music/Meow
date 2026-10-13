@@ -1296,7 +1296,8 @@ private fun RozanSection() {
                     painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.rozan),
                     contentDescription = "Rozan Ui/Ux Team",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
                 )
             }
 
@@ -1388,10 +1389,28 @@ private fun LiveRoomSettings() {
     val c = LocalContainer.current
     val s = LocalAppSettings.current
     val nav = LocalNavigator.current
+    val inNav = NavTab.TOGETHER in s.navTabs
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Group("Live Room Setup") {
+        Group("Live Room Navigation & Setup") {
             Item("Open Live Room Screen", "Start hosting or join a room on local Wi-Fi", onClick = { nav.go(Routes.TOGETHER) }) { Chevron() }
-            Toggle("Show badge in navigation bar", "Display a small floating Live Room status logo next to the navigation bar", s.showLiveRoomNavBadge) { c.settings.setShowLiveRoomNavBadge(it) }
+            Toggle(
+                "Show Live Room in navigation bar",
+                "Display the Join Room tab in the bottom navigation bar",
+                inNav,
+            ) { enabled ->
+                val next = if (enabled) {
+                    if (inNav) s.navTabs else s.navTabs + NavTab.TOGETHER
+                } else {
+                    val filtered = s.navTabs - NavTab.TOGETHER
+                    if (filtered.size >= 2) filtered else s.navTabs
+                }
+                c.settings.setNavTabs(next)
+            }
+            Toggle(
+                "Show badge in navigation bar",
+                "Display a status badge on the Join Room tab and floating status pill when active or nearby",
+                s.showLiveRoomNavBadge,
+            ) { c.settings.setShowLiveRoomNavBadge(it) }
         }
         Group("Features & Security") {
             Item("1-Tap Open Join", "Friends on your Wi-Fi join automatically without entering a PIN", onClick = {})
