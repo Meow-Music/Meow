@@ -95,6 +95,7 @@ private class CloudRelay(
 ) {
     @Volatile private var ws: WebSocket? = null
     @Volatile private var running = false
+    private val cleanTopic = topic.filter { it.isLetterOrDigit() }.lowercase()
 
     fun start() {
         running = true
@@ -103,7 +104,7 @@ private class CloudRelay(
 
     private fun connect() {
         if (!running) return
-        val url = "https://ntfy.sh/meow_live_${topic.lowercase()}/ws"
+        val url = "https://ntfy.sh/meow_live_${cleanTopic}/ws"
         val req = Request.Builder().url(url).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -123,7 +124,7 @@ private class CloudRelay(
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (running) {
                     scope.launch {
-                        delay(3_000)
+                        delay(2_000)
                         if (running) connect()
                     }
                 }
@@ -132,7 +133,7 @@ private class CloudRelay(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (running) {
                     scope.launch {
-                        delay(3_000)
+                        delay(2_000)
                         if (running) connect()
                     }
                 }
@@ -148,7 +149,7 @@ private class CloudRelay(
 
         scope.launch(Dispatchers.IO) {
             val req = Request.Builder()
-                .url("https://ntfy.sh/meow_live_${topic.lowercase()}")
+                .url("https://ntfy.sh/meow_live_${cleanTopic}")
                 .post(envelopeJson.toRequestBody("text/plain".toMediaType()))
                 .build()
             runCatching { http.newCall(req).execute().close() }
@@ -235,7 +236,12 @@ class Together(private val app: Application, private val c: AppContainer) {
                 val g = RelayGuestLink(senderId, msg.name.trim().take(32).ifBlank { "A guest" })
                 relayGuests.removeIf { it.senderId == senderId }
                 relayGuests += g
+                
+                // Immediately send Welcome AND state snapshot
                 hostCloudRelay?.send(Msg.Welcome(myName), targetId = senderId)
+                val currentSnapshot = snapshot()
+                hostCloudRelay?.send(currentSnapshot, targetId = senderId)
+
                 updateHosting()
                 _events.tryEmit("${g.name} joined")
                 broadcastSoon()
@@ -579,11 +585,18 @@ class Together(private val app: Application, private val c: AppContainer) {
         guestCloudRelay = relay
         relay.start()
 
-        // Send Hello over relay
-        relay.send(Msg.Hello(myName, code))
+        // Continually re-send Hello every 800ms until Welcome is received or timeout!
+        val helloJob = scope.launch {
+            while (isActive && !welcomeReceived) {
+                relay.send(Msg.Hello(myName, code))
+                delay(800)
+            }
+        }
 
-        // Wait up to 8 seconds for host response
-        val success = withTimeoutOrNull(8_000) { latch.await() } ?: false
+        // Wait up to 7 seconds for host response
+        val success = withTimeoutOrNull(7_000) { latch.await() } ?: false
+        helloJob.cancel()
+
         if (!success || !welcomeReceived) {
             relay.close()
             guestCloudRelay = null
