@@ -72,6 +72,20 @@ sealed class Msg {
     }
 }
 
+/** Envelope wrapped around messages sent over cloud relay when peers are on different networks. */
+@Serializable
+data class RelayEnvelope(
+    val senderId: String,
+    val targetId: String? = null,
+    val payload: String,
+)
+
+@Serializable
+internal data class NtfyFrame(
+    val event: String? = null,
+    val message: String? = null,
+)
+
 private val videoId = Regex("[A-Za-z0-9_-]{11}")
 private val imageHosts = listOf(".googleusercontent.com", ".ggpht.com", ".ytimg.com")
 

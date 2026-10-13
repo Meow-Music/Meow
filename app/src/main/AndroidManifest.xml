@@ -56,6 +56,13 @@
                 <data android:scheme="https" />
                 <data android:host="music.youtube.com" />
             </intent-filter>
+            <!-- Deep links for joining Live Rooms via QR code or link (meow://room?code=1234). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="meow" />
+            </intent-filter>
             <!-- YouTube / YouTube Music links shared from other apps ("Play in Meow"). -->
             <intent-filter android:label="@string/open_in_meow">
                 <action android:name="android.intent.action.SEND" />

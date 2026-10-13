@@ -199,8 +199,12 @@ fun SettingsScreen(bottomPadding: Dp, section: SettingsSection? = null) {
             }
             SettingsSection.LIBRARY -> item { LibraryReplaySettings() }
             SettingsSection.ABOUT -> item {
+                var selectedTab by remember { mutableIntStateOf(0) }
                 Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    AboutSection()
+                    AboutSection(selectedTab = selectedTab, onTabSelected = { selectedTab = it })
+                    if (selectedTab == 0) {
+                        RozanSection()
+                    }
                     BackupGroup()
                     Group("About") {
                         Item("Meow ${com.meow.music.BuildConfig.VERSION_NAME}", "Ad-free, high-fidelity native music client. Not affiliated with Google or YouTube.", onClick = {})
@@ -948,11 +952,13 @@ private fun AppIconPackPicker(
 }
 
 @Composable
-private fun AboutSection() {
+private fun AboutSection(
+    selectedTab: Int,
+    onTabSelected: (Int) -> Unit
+) {
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val ui = LocalUi.current
     val scheme = MaterialTheme.colorScheme
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Developer (Rexx), 1: Mrs Lucky Charm
 
     Column(
         Modifier
@@ -983,7 +989,7 @@ private fun AboutSection() {
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (selectedTab == 0) scheme.primary else Color.Transparent)
-                    .clickable { selectedTab = 0 }
+                    .clickable { onTabSelected(0) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -1000,7 +1006,7 @@ private fun AboutSection() {
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (selectedTab == 1) scheme.tertiary else Color.Transparent)
-                    .clickable { selectedTab = 1 }
+                    .clickable { onTabSelected(1) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -1051,7 +1057,7 @@ private fun AboutSection() {
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                "v${com.meow.music.BuildConfig.VERSION_NAME}",
+                                "Lead Developer",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = scheme.primary
                             )
@@ -1064,9 +1070,9 @@ private fun AboutSection() {
                         color = scheme.onSurfaceVariant
                     )
                     Text(
-                        "Ad-free, high-fidelity native music streaming.",
+                        "Turning caffeine into Kotlin so you never have to listen to a 30-second unskippable ad again! 🎧⚡",
                         style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.85f)
                     )
                 }
             }
@@ -1252,6 +1258,126 @@ private fun AboutSection() {
                         color = scheme.onSurface
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RozanSection() {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val ui = LocalUi.current
+    val scheme = MaterialTheme.colorScheme
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(ui.card)
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        scheme.surfaceContainerHigh,
+                        scheme.secondaryContainer.copy(alpha = 0.45f)
+                    )
+                )
+            )
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, scheme.secondary, CircleShape)
+                    .background(scheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.rozan),
+                    contentDescription = "Rozan Ui/Ux Team",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Rozan",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = scheme.onSurface
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(scheme.secondary.copy(alpha = 0.2f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "UI/UX Developer",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = scheme.secondary
+                        )
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "UI/UX Developer",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "Pixel whisperer & dark mode fanatic. Spends 4 hours deciding between 8dp and 12dp corner radius! ✨",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.85f)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        androidx.compose.material3.HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.4f))
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            "Connect & Follow Rozan",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = scheme.secondary
+        )
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // Messenger
+            Column(
+                Modifier
+                    .weight(1f)
+                    .clip(ui.shape(12.dp))
+                    .background(scheme.surfaceContainerLowest.copy(alpha = 0.6f))
+                    .clickable { runCatching { uriHandler.openUri("https://www.m.me/rojan.lama.9") } }
+                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.ic_messenger),
+                    contentDescription = "Messenger",
+                    tint = Color.Unspecified,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Messenger",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = scheme.onSurface
+                )
             }
         }
     }

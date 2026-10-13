@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.media3.common.Player
 import com.meow.music.AppContainer
 import com.meow.music.data.model.Song
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,11 +30,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import java.net.Inet4Address
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.resume
 import kotlin.math.abs
@@ -71,12 +80,91 @@ data class NearbySession(
     val isPrivate: Boolean = false,
 )
 
+private class RelayGuestLink(val senderId: String, val name: String)
+
 /**
- * Listen Together: phones on the same Wi-Fi (or one's hotspot) listen to the same thing. One phone
- * hosts; it advertises the session on the local network and lets in whoever has its four-digit
- * code. Guests either play the music themselves, kept in step with the host's playhead, or just
- * add songs to the host's queue (party mode). There's no server, account or internet relay:
- * phones talk to each other directly, and only while a session is open.
+ * Pub/Sub Cloud Relay over OkHttp WebSocket & HTTP POST on ntfy.sh.
+ * Allows phones across different networks/countries (e.g. UAE & Nepal) to communicate seamlessly.
+ */
+private class CloudRelay(
+    private val http: OkHttpClient,
+    private val scope: CoroutineScope,
+    private val topic: String,
+    private val myId: String,
+    private val onMessage: (senderId: String, msg: Msg) -> Unit,
+) {
+    @Volatile private var ws: WebSocket? = null
+    @Volatile private var running = false
+
+    fun start() {
+        running = true
+        connect()
+    }
+
+    private fun connect() {
+        if (!running) return
+        val url = "https://ntfy.sh/meow_live_${topic.lowercase()}/ws"
+        val req = Request.Builder().url(url).build()
+        ws = http.newWebSocket(req, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                runCatching {
+                    val frame = Wire.json.decodeFromString<NtfyFrame>(text)
+                    if (frame.event == "message" && !frame.message.isNullOrBlank()) {
+                        val envelope = Wire.json.decodeFromString<RelayEnvelope>(frame.message)
+                        if (envelope.senderId != myId && (envelope.targetId == null || envelope.targetId == myId)) {
+                            Wire.decode(envelope.payload)?.let { msg ->
+                                onMessage(envelope.senderId, msg)
+                            }
+                        }
+                    }
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (running) {
+                    scope.launch {
+                        delay(3_000)
+                        if (running) connect()
+                    }
+                }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (running) {
+                    scope.launch {
+                        delay(3_000)
+                        if (running) connect()
+                    }
+                }
+            }
+        })
+    }
+
+    fun send(msg: Msg, targetId: String? = null) {
+        if (!running) return
+        val payload = Wire.encode(msg)
+        val envelope = RelayEnvelope(senderId = myId, targetId = targetId, payload = payload)
+        val envelopeJson = Wire.json.encodeToString(RelayEnvelope.serializer(), envelope)
+
+        scope.launch(Dispatchers.IO) {
+            val req = Request.Builder()
+                .url("https://ntfy.sh/meow_live_${topic.lowercase()}")
+                .post(envelopeJson.toRequestBody("text/plain".toMediaType()))
+                .build()
+            runCatching { http.newCall(req).execute().close() }
+        }
+    }
+
+    fun close() {
+        running = false
+        runCatching { ws?.close(1000, "Closed") }
+        ws = null
+    }
+}
+
+/**
+ * Listen Together: phones on the same Wi-Fi OR across the Internet (e.g. UAE & Nepal) listen to the same thing.
+ * One phone hosts; it advertises the session on local network AND cloud relay, allowing 1-tap or 4-digit PIN join anywhere.
  */
 class Together(private val app: Application, private val c: AppContainer) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -99,6 +187,10 @@ class Together(private val app: Application, private val c: AppContainer) {
 
     @Volatile private var server: ServerSocket? = null
     private val guests = CopyOnWriteArrayList<GuestLink>()
+    private val relayGuests = CopyOnWriteArrayList<RelayGuestLink>()
+    private var hostCloudRelay: CloudRelay? = null
+    private var hostRelayId = ""
+
     private var registration: NsdManager.RegistrationListener? = null
     private val hostJobs = CopyOnWriteArrayList<Job>()
     @Volatile private var code = ""
@@ -111,15 +203,69 @@ class Together(private val app: Application, private val c: AppContainer) {
         starting = true
         stopDiscovery()
         scope.launch {
-            code = if (isPrivate) (1000..9999).random().toString() else Msg.OPEN_CODE
+            code = (1000..9999).random().toString()
             val ss = runCatching { ServerSocket(PORT) }.getOrNull() ?: runCatching { ServerSocket(0) }.getOrNull()
             starting = false
             if (ss == null) { _events.tryEmit("Couldn't start a session on this network"); return@launch }
             server = ss
             _state.value = TogetherState.Hosting(code, localAddress(), ss.localPort, emptyList(), guestsControl, isPrivate)
             register(ss.localPort, isPrivate)
+
+            // Cloud Relay for internet friends across different networks (e.g. UAE to Nepal)
+            hostRelayId = UUID.randomUUID().toString()
+            val relay = CloudRelay(c.http, scope, code, hostRelayId) { senderId, msg ->
+                scope.launch { handleRelayGuestMsg(senderId, msg) }
+            }
+            hostCloudRelay = relay
+            relay.start()
+
             hostJobs += scope.launch { acceptLoop(ss) }
             hostJobs += scope.launch { watchPlayer() }
+        }
+    }
+
+    private suspend fun handleRelayGuestMsg(senderId: String, msg: Msg) {
+        when (msg) {
+            is Msg.Hello -> {
+                val codeMatches = msg.code.trim().equals(code, ignoreCase = true) || code == Msg.OPEN_CODE
+                if (!codeMatches) {
+                    hostCloudRelay?.send(Msg.Denied("That code doesn't match."), targetId = senderId)
+                    return
+                }
+                val g = RelayGuestLink(senderId, msg.name.trim().take(32).ifBlank { "A guest" })
+                relayGuests.removeIf { it.senderId == senderId }
+                relayGuests += g
+                hostCloudRelay?.send(Msg.Welcome(myName), targetId = senderId)
+                updateHosting()
+                _events.tryEmit("${g.name} joined")
+                broadcastSoon()
+            }
+            is Msg.Ping -> {
+                hostCloudRelay?.send(Msg.Pong(msg.t0, SystemClock.elapsedRealtime()), targetId = senderId)
+            }
+            is Msg.Add -> {
+                val g = relayGuests.firstOrNull { it.senderId == senderId } ?: return
+                val song = msg.song.fromPeer() ?: return
+                withContext(Dispatchers.Main) { if (msg.next) c.player.playNext(song) else c.player.addToQueue(song) }
+                _events.tryEmit("${g.name} added ${song.title}")
+                val added = Msg.Added(song, g.name)
+                guests.forEach { it.link.send(added) }
+                hostCloudRelay?.send(added)
+                broadcastSoon()
+            }
+            is Msg.Control -> {
+                if (guestsControl) onGuestControl(msg)
+            }
+            is Msg.Bye -> {
+                val g = relayGuests.firstOrNull { it.senderId == senderId }
+                if (g != null) {
+                    relayGuests.remove(g)
+                    updateHosting()
+                    _events.tryEmit("${g.name} left")
+                    broadcastSoon()
+                }
+            }
+            else -> Unit
         }
     }
 
@@ -131,7 +277,8 @@ class Together(private val app: Application, private val c: AppContainer) {
 
     private fun updateHosting() {
         val h = _state.value as? TogetherState.Hosting ?: return
-        _state.value = h.copy(guests = guests.map { it.name }, guestsControl = guestsControl)
+        val allGuests = guests.map { it.name } + relayGuests.map { it.name }
+        _state.value = h.copy(guests = allGuests, guestsControl = guestsControl)
     }
 
     private fun acceptLoop(ss: ServerSocket) {
@@ -197,6 +344,7 @@ class Together(private val app: Application, private val c: AppContainer) {
         _events.tryEmit("${g.name} added ${song.title}")
         val added = Msg.Added(song, g.name)
         guests.forEach { it.link.send(added) }
+        hostCloudRelay?.send(added)
         broadcastSoon()
     }
 
@@ -239,16 +387,17 @@ class Together(private val app: Application, private val c: AppContainer) {
     }
 
     private suspend fun broadcast() {
-        if (guests.isEmpty()) return
+        if (guests.isEmpty() && relayGuests.isEmpty()) return
         val s = snapshot()
         guests.forEach { it.link.send(s) }
+        hostCloudRelay?.send(s)
     }
 
     private suspend fun snapshot(): Msg.State = withContext(Dispatchers.Main) {
         val pc = c.player
         val queue = pc.queue.value
         val current = queue.getOrNull(pc.currentIndex.value)?.song ?: pc.currentSong.value
-        val upcoming = pc.upNext.value.mapNotNull { queue.getOrNull(it)?.song }.take(24)
+        val upcoming = pc.upNext.value.mapNotNull { queue.getOrNull(it)?.song }.take(12)
         Msg.State(
             songs = listOfNotNull(current) + upcoming,
             positionMs = pc.position,
@@ -256,7 +405,7 @@ class Together(private val app: Application, private val c: AppContainer) {
             buffering = pc.buffering.value,
             sentAt = SystemClock.elapsedRealtime(),
             title = c.queue.source.value.title,
-            guests = guests.map { it.name },
+            guests = guests.map { it.name } + relayGuests.map { it.name },
             canControl = guestsControl,
         )
     }
@@ -281,9 +430,15 @@ class Together(private val app: Application, private val c: AppContainer) {
 
     private fun stopHosting(reason: String) {
         val bye = Msg.Bye(reason)
-        val leaving = guests.toList()
+        val leavingSockets = guests.toList()
         guests.clear()
-        scope.launch { leaving.forEach { it.link.send(bye); it.link.close() } }
+        relayGuests.clear()
+        scope.launch {
+            leavingSockets.forEach { it.link.send(bye); it.link.close() }
+            hostCloudRelay?.send(bye)
+            hostCloudRelay?.close()
+            hostCloudRelay = null
+        }
         registration?.let { l -> runCatching { nsd?.unregisterService(l) } }
         registration = null
         runCatching { server?.close() }
@@ -357,6 +512,9 @@ class Together(private val app: Application, private val c: AppContainer) {
     // ------------------------------------------------------------ Joining
 
     @Volatile private var hostLink: Link? = null
+    private var guestCloudRelay: CloudRelay? = null
+    private var guestRelayId = ""
+
     private val guestJobs = CopyOnWriteArrayList<Job>()
     private var clock = ClockSync()
     private var leaving = false
@@ -366,6 +524,90 @@ class Together(private val app: Application, private val c: AppContainer) {
     private var hostName = ""
     /** Where to reconnect after a dropped connection: host, port, code. */
     private var target: Triple<String, Int, String>? = null
+
+    /** Join using a 4-digit PIN code or QR code string (works across internet & local Wi-Fi). */
+    suspend fun joinWithCode(inputCode: String): String? {
+        val cleanCode = inputCode.filter { it.isLetterOrDigit() }.take(10).uppercase()
+        if (cleanCode.isBlank()) return "Please enter a valid 4-digit PIN"
+
+        // Check if there is a local Wi-Fi session matching this PIN
+        val nearbyMatch = _nearby.value.firstOrNull {
+            it.key.contains(cleanCode, ignoreCase = true) || it.name.contains(cleanCode, ignoreCase = true)
+        }
+        if (nearbyMatch != null) {
+            val localRes = join(nearbyMatch.host, nearbyMatch.port, cleanCode, nearbyMatch.name)
+            if (localRes == null) return null // Joined via local network!
+        }
+
+        // Fallback to Cloud Relay (works globally across different networks, e.g., UAE to Nepal)
+        return joinRelay(cleanCode)
+    }
+
+    /** Join via Cloud Relay when peers are on different networks across the world. */
+    private suspend fun joinRelay(code: String): String? = withContext(Dispatchers.IO) {
+        if (_state.value !is TogetherState.Idle) return@withContext "Leave this session first"
+        _state.value = TogetherState.Joining("Room $code")
+
+        val gId = UUID.randomUUID().toString()
+        guestRelayId = gId
+        var welcomeReceived = false
+        var welcomeHostName = ""
+        val latch = CompletableDeferred<Boolean>()
+
+        val relay = CloudRelay(c.http, scope, code, gId) { senderId, msg ->
+            when (msg) {
+                is Msg.Welcome -> {
+                    welcomeHostName = msg.hostName
+                    welcomeReceived = true
+                    if (!latch.isCompleted) latch.complete(true)
+                }
+                is Msg.Denied -> {
+                    _events.tryEmit(msg.reason)
+                    if (!latch.isCompleted) latch.complete(false)
+                }
+                is Msg.State -> {
+                    val s = msg.copy(songs = msg.songs.mapNotNull { it.fromPeer() }, guests = msg.guests.take(50).map { it.take(32) })
+                    lastState = s
+                    scope.launch(Dispatchers.Main) { onHostState(s) }
+                }
+                is Msg.Pong -> clock.onPong(msg, SystemClock.elapsedRealtime())
+                is Msg.Added -> if (msg.by != myName) _events.tryEmit("${msg.by.take(32)} added ${msg.song.title.take(120)}")
+                is Msg.Bye -> { endGuest("$hostName ended the session") }
+                else -> Unit
+            }
+        }
+        guestCloudRelay = relay
+        relay.start()
+
+        // Send Hello over relay
+        relay.send(Msg.Hello(myName, code))
+
+        // Wait up to 8 seconds for host response
+        val success = withTimeoutOrNull(8_000) { latch.await() } ?: false
+        if (!success || !welcomeReceived) {
+            relay.close()
+            guestCloudRelay = null
+            _state.value = TogetherState.Idle
+            return@withContext "Couldn't reach room $code. Make sure the host has room $code open."
+        }
+
+        stopDiscovery()
+        hostName = welcomeHostName
+        leaving = false
+        inSync = true
+        clock = ClockSync()
+        appliedSong = null
+        c.queue.followingHost = listenHere
+        _state.value = TogetherState.Guest(welcomeHostName, lastState, listenHere, inSync)
+
+        guestJobs += scope.launch {
+            while (isActive) {
+                guestCloudRelay?.send(Msg.Ping(SystemClock.elapsedRealtime()))
+                delay(if (clock.samples < 5) 500 else 5_000)
+            }
+        }
+        null
+    }
 
     /** Instant 1-tap join for an open session nearby. */
     suspend fun joinSession(session: NearbySession, pinCode: String = ""): String? {
@@ -386,7 +628,7 @@ class Together(private val app: Application, private val c: AppContainer) {
                 null
             }
             is Msg.Denied -> { _state.value = TogetherState.Idle; reply.reason }
-            null -> { _state.value = TogetherState.Idle; "Couldn't reach $label. Make sure both phones are on the same Wi-Fi." }
+            null -> { _state.value = TogetherState.Idle; "Couldn't reach $label via direct IP." }
             else -> { _state.value = TogetherState.Idle; "$label didn't answer" }
         }
     }
@@ -456,6 +698,8 @@ class Together(private val app: Application, private val c: AppContainer) {
     private fun endGuest(message: String) {
         hostLink?.close()
         hostLink = null
+        guestCloudRelay?.close()
+        guestCloudRelay = null
         guestJobs.forEach { it.cancel() }
         guestJobs.clear()
         c.queue.followingHost = false
@@ -486,14 +730,16 @@ class Together(private val app: Application, private val c: AppContainer) {
 
     /** Guest: put [song] in the host's queue. */
     fun suggest(song: Song, next: Boolean) {
-        val l = hostLink ?: return
-        scope.launch { l.send(Msg.Add(song, next)) }
+        val msg = Msg.Add(song, next)
+        hostLink?.let { l -> scope.launch { l.send(msg) } }
+        guestCloudRelay?.send(msg)
     }
 
     /** Guest, when the host allows it: play, pause, next, previous or seek on the host. */
     fun control(action: String, positionMs: Long = 0) {
-        val l = hostLink ?: return
-        scope.launch { l.send(Msg.Control(action, positionMs)) }
+        val msg = Msg.Control(action, positionMs)
+        hostLink?.let { l -> scope.launch { l.send(msg) } }
+        guestCloudRelay?.send(msg)
     }
 
     /** Ends hosting, or leaves the session. */
@@ -506,7 +752,14 @@ class Together(private val app: Application, private val c: AppContainer) {
             is TogetherState.Guest, is TogetherState.Joining -> {
                 leaving = true
                 val l = hostLink
-                scope.launch { l?.send(Msg.Bye()); l?.close() }
+                val msg = Msg.Bye()
+                scope.launch {
+                    l?.send(msg)
+                    l?.close()
+                    guestCloudRelay?.send(msg)
+                    guestCloudRelay?.close()
+                    guestCloudRelay = null
+                }
                 hostLink = null
                 guestJobs.forEach { it.cancel() }
                 guestJobs.clear()
@@ -595,5 +848,3 @@ class Together(private val app: Application, private val c: AppContainer) {
         private const val NAME_PREFIX = "Meow · "
     }
 }
-
-

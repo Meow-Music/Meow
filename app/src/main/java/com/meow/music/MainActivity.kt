@@ -635,8 +635,16 @@ private fun MinimalTab(tab: Tab, selected: Boolean, onClick: () -> Unit) {
 private fun handleDeepLink(uri: Uri, nav: Navigator, c: AppContainer) {
     val v = uri.getQueryParameter("v")
     val list = uri.getQueryParameter("list")
+    val code = uri.getQueryParameter("code") ?: uri.getQueryParameter("pin")
     val path = uri.pathSegments
     when {
+        uri.scheme == "meow" || code != null -> {
+            val roomCode = code ?: path.lastOrNull().orEmpty()
+            if (roomCode.isNotBlank()) {
+                nav.go(Routes.TOGETHER)
+                c.scope.launch { c.together.joinWithCode(roomCode) }
+            }
+        }
         v != null -> {
             nav.openPlayer()
             launchSingle(c, v)
