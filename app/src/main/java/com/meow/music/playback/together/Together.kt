@@ -83,7 +83,7 @@ data class NearbySession(
 private class RelayGuestLink(val senderId: String, val name: String)
 
 /**
- * Pub/Sub Cloud Relay over OkHttp WebSocket & HTTP POST on ntfy.sh.
+ * Pub/Sub Cloud Relay over OkHttp WebSocket & HTTP POST on ntfy.sh / SocketsBay.
  * Allows phones across different networks/countries (e.g. UAE & Nepal) to communicate seamlessly.
  */
 private class CloudRelay(
@@ -95,6 +95,9 @@ private class CloudRelay(
 ) {
     @Volatile private var ws: WebSocket? = null
     @Volatile private var running = false
+    @Volatile var isConnected = false
+        private set
+
     private val cleanTopic = topic.filter { it.isLetterOrDigit() }.lowercase()
 
     fun start() {
@@ -104,17 +107,32 @@ private class CloudRelay(
 
     private fun connect() {
         if (!running) return
-        val url = "https://ntfy.sh/meow_live_${cleanTopic}/ws"
+        val url = "wss://socketsbay.com/wss/v2/1/meow_live_${cleanTopic}/"
         val req = Request.Builder().url(url).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d("Together", "CloudRelay WebSocket connected to $cleanTopic")
+                isConnected = true
+            }
+
             override fun onMessage(webSocket: WebSocket, text: String) {
                 runCatching {
-                    val frame = Wire.json.decodeFromString<NtfyFrame>(text)
-                    if (frame.event == "message" && !frame.message.isNullOrBlank()) {
-                        val envelope = Wire.json.decodeFromString<RelayEnvelope>(frame.message)
-                        if (envelope.senderId != myId && (envelope.targetId == null || envelope.targetId == myId)) {
-                            Wire.decode(envelope.payload)?.let { msg ->
-                                onMessage(envelope.senderId, msg)
+                    val envelope = Wire.json.decodeFromString<RelayEnvelope>(text)
+                    if (envelope.senderId != myId && (envelope.targetId == null || envelope.targetId == myId)) {
+                        Wire.decode(envelope.payload)?.let { msg ->
+                            onMessage(envelope.senderId, msg)
+                        }
+                    }
+                }.onFailure {
+                    // Try parsing as ntfy frame if fallback was used
+                    runCatching {
+                        val frame = Wire.json.decodeFromString<NtfyFrame>(text)
+                        if (frame.event == "message" && !frame.message.isNullOrBlank()) {
+                            val envelope = Wire.json.decodeFromString<RelayEnvelope>(frame.message)
+                            if (envelope.senderId != myId && (envelope.targetId == null || envelope.targetId == myId)) {
+                                Wire.decode(envelope.payload)?.let { msg ->
+                                    onMessage(envelope.senderId, msg)
+                                }
                             }
                         }
                     }
@@ -122,6 +140,8 @@ private class CloudRelay(
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.w("Together", "CloudRelay WebSocket failed: ${t.localizedMessage}")
+                isConnected = false
                 if (running) {
                     scope.launch {
                         delay(2_000)
@@ -131,6 +151,7 @@ private class CloudRelay(
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                isConnected = false
                 if (running) {
                     scope.launch {
                         delay(2_000)
@@ -147,6 +168,13 @@ private class CloudRelay(
         val envelope = RelayEnvelope(senderId = myId, targetId = targetId, payload = payload)
         val envelopeJson = Wire.json.encodeToString(RelayEnvelope.serializer(), envelope)
 
+        val activeWs = ws
+        if (isConnected && activeWs != null) {
+            val sent = activeWs.send(envelopeJson)
+            if (sent) return
+        }
+
+        // Fallback send via HTTP POST to ntfy.sh
         scope.launch(Dispatchers.IO) {
             val req = Request.Builder()
                 .url("https://ntfy.sh/meow_live_${cleanTopic}")
@@ -158,6 +186,7 @@ private class CloudRelay(
 
     fun close() {
         running = false
+        isConnected = false
         runCatching { ws?.close(1000, "Closed") }
         ws = null
     }
@@ -561,6 +590,7 @@ class Together(private val app: Application, private val c: AppContainer) {
         val latch = CompletableDeferred<Boolean>()
 
         val relay = CloudRelay(c.http, scope, code, gId) { senderId, msg ->
+            Log.d("Together", "Guest received msg on relay: ${msg::class.simpleName}")
             when (msg) {
                 is Msg.Welcome -> {
                     welcomeHostName = msg.hostName
@@ -585,7 +615,9 @@ class Together(private val app: Application, private val c: AppContainer) {
         guestCloudRelay = relay
         relay.start()
 
-        // Continually re-send Hello every 800ms until Welcome is received or timeout!
+        // Wait briefly for relay socket to open before sending initial Hello
+        delay(300)
+
         val helloJob = scope.launch {
             while (isActive && !welcomeReceived) {
                 relay.send(Msg.Hello(myName, code))
@@ -593,15 +625,15 @@ class Together(private val app: Application, private val c: AppContainer) {
             }
         }
 
-        // Wait up to 7 seconds for host response
-        val success = withTimeoutOrNull(7_000) { latch.await() } ?: false
+        // Wait up to 6 seconds for host response
+        val success = withTimeoutOrNull(6_000) { latch.await() } ?: false
         helloJob.cancel()
 
         if (!success || !welcomeReceived) {
             relay.close()
             guestCloudRelay = null
             _state.value = TogetherState.Idle
-            return@withContext "Couldn't reach room $code. Make sure the host has room $code open."
+            return@withContext "Couldn't reach room $code. Make sure host has room $code open."
         }
 
         stopDiscovery()
