@@ -89,7 +89,7 @@ private class RelayGuestLink(val senderId: String, val name: String)
 private class CloudRelay(
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
-    private val topic: String,
+    topic: String,
     private val myId: String,
     private val onMessage: (senderId: String, msg: Msg) -> Unit,
 ) {
