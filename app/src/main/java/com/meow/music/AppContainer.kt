@@ -75,6 +75,9 @@ class AppContainer(val app: Application) {
     val ytm = YouTubeMusic(innerTube)
     val db = MeowDatabase.build(app)
     val streams by lazy { StreamResolver(app, http, settings, innerTube) }
+
+    val translator = com.meow.music.data.lyrics.LyricsTranslator(http)
+
     val lyrics = LyricsRepository(http, db.lyrics(), ytm) { settings.current }.apply {
         choices = app.getSharedPreferences("lyrics_choice", android.content.Context.MODE_PRIVATE)
     }

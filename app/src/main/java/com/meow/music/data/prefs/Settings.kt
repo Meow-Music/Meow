@@ -205,6 +205,10 @@ data class AppSettings(
     val preferSynced: Boolean = true,
     /** Pass over sources whose lyrics star out swear words when another has them in full. */
     val skipCensored: Boolean = true,
+    /** A translation under each lyric line (machine translation, asked of Google Translate), when the song isn't in it. */
+    val lyricsTranslate: Boolean = true,
+    /** Language code to translate lyrics into; blank means the phone's language. */
+    val lyricsTranslateTo: String = "",
     val lyricsScale: Float = 1f,
     /** Lyrics on Android Auto's player (the car's Lyrics button flips this too). */
     val carLyrics: Boolean = true,
@@ -331,6 +335,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val backdropMotion = booleanPreferencesKey("backdrop_motion")
         val lyricsOnPlayer = booleanPreferencesKey("lyrics_on_player")
         val lyricsOrder = stringPreferencesKey("lyrics_order")
+
+        val lyricsTranslate = booleanPreferencesKey("lyrics_translate")
+
+        val lyricsTranslateTo = stringPreferencesKey("lyrics_translate_to")
+
         val preferSynced = booleanPreferencesKey("prefer_synced")
         val skipCensored = booleanPreferencesKey("skip_censored")
         val lyricsScale = floatPreferencesKey("lyrics_scale")
@@ -438,6 +447,9 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             backdropDim = p[K.backdropDim] ?: d.backdropDim,
             backdropMotion = p[K.backdropMotion] ?: d.backdropMotion,
             lyricsOnPlayer = p[K.lyricsOnPlayer] ?: d.lyricsOnPlayer,
+            lyricsTranslate = p[K.lyricsTranslate] ?: d.lyricsTranslate,
+
+            lyricsTranslateTo = p[K.lyricsTranslateTo] ?: d.lyricsTranslateTo,
             lyricsOrder = p[K.lyricsOrder]?.split(",")?.mapNotNull { n ->
                 LyricsSource.entries.firstOrNull { it.name == n }
             }?.let { list ->
@@ -644,6 +656,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setFrostedPages(v: Boolean) = edit { it[K.frostedPages] = v }
     fun setReplayThemeColors(v: Boolean) = edit { it[K.replayThemeColors] = v }
     fun setAppIconType(v: AppIconType) = edit { it[K.appIconType] = v.name }
+
+    fun setLyricsTranslate(v: Boolean) = edit { it[K.lyricsTranslate] = v }
+
+    fun setLyricsTranslateTo(v: String) = edit { it[K.lyricsTranslateTo] = v }
+
     fun setShowLiveRoomNavBadge(v: Boolean) = edit { it[K.showLiveRoomNavBadge] = v }
 
     /** Puts every look & layout option back to how Meow ships (colours and backgrounds are left alone). */

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,9 +105,11 @@ fun PlayerOptionsSheet(
             active = sleeping, onClick = onSleepTimer,
         ),
     )
+	    val translating = c.settings.flow.collectAsState().value.lyricsTranslate
     val lyrics = listOf(
         ActionItem(Icons.Rounded.FormatQuote, "Lyrics source", onClick = onLyricsSource),
         ActionItem(Icons.Rounded.AvTimer, "Lyrics timing", onClick = onLyricsTiming),
+		ActionItem(Icons.Rounded.Translate, "Translate lyrics", value = if (translating) "On" else "Off", active = translating, keepOpen = true,) { c.settings.setLyricsTranslate(!translating) },
         ActionItem(Icons.Rounded.Refresh, "Download lyrics again") { onRedownloadLyrics(); toast("Downloading lyrics again") },
     )
     val cover = com.meow.music.data.canvas.CanvasRepository.albumKey(song)

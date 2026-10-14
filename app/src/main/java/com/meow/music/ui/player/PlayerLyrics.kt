@@ -41,22 +41,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -136,7 +133,6 @@ class LyricsState(
     var lyrics by mutableStateOf<Lyrics?>(null)
     var loading by mutableStateOf(true)
     var source by mutableStateOf<LyricsSource?>(null)
-    var editingCustom by mutableStateOf(false)
     val providers = mutableStateMapOf<LyricsSource, ProviderState>()
     /** Sources whose lyrics star out swear words. */
     val censoredSources = mutableStateMapOf<LyricsSource, Boolean>()
@@ -144,36 +140,40 @@ class LyricsState(
     private val found = HashMap<LyricsSource, Lyrics?>()
     private var selectJob: Job? = null
 
+    var editingCustom by mutableStateOf(false)
+
     val lines: List<LyricLine> get() = lyrics?.lines.orEmpty()
     val unavailable: Boolean get() = !loading && lyrics == null
 
-    suspend fun getCustomText(): String = repo.getCustomRaw(song) ?: ""
-
-    fun saveCustom(text: String) {
-        selectJob?.cancel()
-        loading = true
-        selectJob = scope.launch {
-            val l = repo.saveCustom(song, text)
-            found[LyricsSource.CUSTOM] = l
-            providers[LyricsSource.CUSTOM] = l.state()
+    fun saveCustom(content: String) {
+        scope.launch {
+            val l = repo.saveCustom(song, content)
             if (l != null) {
-                lyrics = l
+                found[LyricsSource.CUSTOM] = l
                 source = LyricsSource.CUSTOM
+                lyrics = l
+                loading = false
+                providers[LyricsSource.CUSTOM] = l.state()
             } else {
-                loadAuto()
+                found.remove(LyricsSource.CUSTOM)
+                providers[LyricsSource.CUSTOM] = ProviderState.NONE
+                if (source == LyricsSource.CUSTOM) {
+                    loadAuto()
+                }
             }
-            loading = false
+            editingCustom = false
         }
     }
 
     fun deleteCustom() {
-        selectJob?.cancel()
-        loading = true
-        selectJob = scope.launch {
+        scope.launch {
             repo.deleteCustom(song)
             found.remove(LyricsSource.CUSTOM)
             providers[LyricsSource.CUSTOM] = ProviderState.NONE
-            loadAuto()
+            if (source == LyricsSource.CUSTOM) {
+                loadAuto()
+            }
+            editingCustom = false
         }
     }
 
@@ -459,6 +459,43 @@ fun SweptLine(
     }
 }
 
+/**
+ * Shows the player's controls on a drag down and hides them on a drag up, once per drag. Showing or hiding them
+ * resizes the list under the finger, which reads as a drag the other way: allowed to switch again within the same
+ * drag, they flickered in and out for as long as the finger moved (reported on a 120 Hz Galaxy, scrolling the lyrics
+ * up after changing their source).
+ */
+class ControlsOnScroll(private val onHide: () -> Unit, private val onReveal: () -> Unit) : NestedScrollConnection {
+    private var acc = 0f
+    private var switched = false
+
+    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+        if (source != NestedScrollSource.UserInput || switched) return Offset.Zero
+        acc = if ((acc > 0) == (available.y > 0)) acc + available.y else available.y
+        if (acc < -40f) { onHide(); switched = true } else if (acc > 40f) { onReveal(); switched = true }
+        return Offset.Zero
+    }
+
+    /** The finger is up: the next drag may switch them again. */
+    override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+        acc = 0f
+        switched = false
+        return androidx.compose.ui.unit.Velocity.Zero
+    }
+}
+
+/** The phone's language as Google Translate names it (Chinese by script, old Java codes renamed). */
+fun defaultTranslateTarget(): String {
+    val l = java.util.Locale.getDefault()
+    return when (l.language) {
+        "zh" -> if (l.script == "Hant" || l.country in setOf("TW", "HK", "MO")) "zh-TW" else "zh-CN"
+        "iw" -> "he"
+        "in" -> "id"
+        "" -> "en"
+        else -> l.language
+    }
+}
+
 /** Full lyrics inside the player: big tight type, the sung line crisp, the rest falling out of focus. */
 @Composable
 fun LyricsPanel(
@@ -497,35 +534,23 @@ fun LyricsPanel(
             else -> listState.animateScrollToItem(lead)
         }
     }
-    val controlsOnScroll = remember {
-        object : NestedScrollConnection {
-            var acc = 0f
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput) {
-                    acc = if ((acc > 0) == (available.y > 0)) acc + available.y else available.y
-                    if (acc < -40f) { onHideControls(); acc = 0f } else if (acc > 40f) { onRevealControls(); acc = 0f }
-                }
-                return Offset.Zero
-            }
-        }
+    val controlsOnScroll = remember { ControlsOnScroll(onHide = onHideControls, onReveal = onRevealControls) }
+
+    // A translation under each line, when it's turned on and the song isn't already in that language.
+    val translateTo = settings.lyricsTranslateTo.ifBlank { defaultTranslateTarget() }
+    var translation by remember(lines, settings.lyricsTranslate, translateTo) { mutableStateOf<com.meow.music.data.lyrics.LyricsTranslator.Translation?>(null) }
+    LaunchedEffect(lines, settings.lyricsTranslate, translateTo) {
+        if (!settings.lyricsTranslate || lines.isEmpty()) return@LaunchedEffect
+        val texts = lines.map { l -> if (l.isGap || (l.text.startsWith("[") && l.text.endsWith("]"))) "" else l.text }
+        translation = runCatching { c.translator.translate(texts, translateTo) }
+            .onFailure { android.util.Log.w("MeowLyrics", "Couldn't translate the lyrics: $it") }.getOrNull()
     }
+    val translations = translation?.takeUnless { it.sameLanguage }?.translations
 
     if (lines.isEmpty()) {
         Box(modifier.pointerInput(Unit) { detectTapGestures { onRevealControls() } }, contentAlignment = Alignment.Center) {
-            if (state.loading) {
-                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
-            } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No lyrics for this track", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.6f))
-                    Spacer(Modifier.height(16.dp))
-                    com.meow.music.ui.components.MeowChip(
-                        selected = true,
-                        onClick = { state.editingCustom = true },
-                        label = "Add custom lyrics",
-                        icon = Icons.Rounded.Add,
-                    )
-                }
-            }
+            if (state.loading) CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+            else Text("No lyrics for this track", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.6f))
         }
         return
     }
@@ -592,34 +617,31 @@ fun LyricsPanel(
                     .clickable(enabled = synced) { c.player.seekToLyric(line.timeMs); browsing = false }
                     .padding(vertical = 9.dp, horizontal = 2.dp),
             ) {
-                if (isActive && line.isWordSynced) {
-                    SweptLine(line, clock, style, Modifier.fillMaxWidth())
-                } else {
-                    // Inactive lines sit back; the sung line is full white.
-                    val lineAlpha = if (synced && !isActive) alpha * 0.55f else alpha
-                    Text(line.text, style = style, color = Color.White.copy(alpha = lineAlpha), modifier = Modifier.fillMaxWidth())
+                // Inactive lines sit back; the sung line is full white.
+                val lineAlpha = if (synced && !isActive) alpha * 0.55f else alpha
+                Column(Modifier.fillMaxWidth()) {
+                    if (isActive && line.isWordSynced) {
+                        SweptLine(line, clock, style, Modifier.fillMaxWidth())
+                    } else {
+                        Text(line.text, style = style, color = Color.White.copy(alpha = lineAlpha), modifier = Modifier.fillMaxWidth())
+                    }
+                    translations?.getOrNull(index)?.takeUnless { it.equals(line.text.trim(), ignoreCase = true) }?.let { t ->
+                        Text(
+                            t,
+                            style = style.copy(fontSize = style.fontSize * 0.52f, lineHeight = style.lineHeight * 0.56f, fontWeight = FontWeight.SemiBold),
+                            color = Color.White.copy(alpha = (if (isActive) 0.75f else lineAlpha * 0.8f)),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                    }
                 }
             }
         }
         item {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Text(
+                "Lyrics from ${state.lyrics?.source?.label ?: "—"}",
+                style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.4f),
                 modifier = Modifier.padding(top = 20.dp),
-            ) {
-                Text(
-                    "Lyrics from ${state.lyrics?.source?.label ?: "—"}",
-                    style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.4f),
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    if (state.source == LyricsSource.CUSTOM) "Edit custom lyrics" else "Add custom lyrics",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.75f),
-                    textDecoration = TextDecoration.Underline,
-                    modifier = Modifier.clickable { state.editingCustom = true },
-                )
-            }
+            )
         }
     }
     // Full-screen lyrics: the bottom of the screen brings the controls back (tap or swipe up).
@@ -711,8 +733,7 @@ fun LyricsProviderSheet(state: LyricsState, onDismiss: () -> Unit) {
     com.meow.music.ui.components.ActionSheet(state.song.thumbnail, onDismiss) { close ->
         Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Lyrics source", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            com.meow.music.ui.components.MeowChip(false, { close { state.editingCustom = true } }, "Add / Edit", icon = Icons.Rounded.Edit)
-            Spacer(Modifier.width(8.dp))
+            // Up top, where it can't scroll out of reach.
             state.source?.let {
                 com.meow.music.ui.components.MeowChip(false, { state.redownload(); close {} }, "Re-download", icon = Icons.Rounded.Refresh)
             }
@@ -730,11 +751,13 @@ fun LyricsProviderSheet(state: LyricsState, onDismiss: () -> Unit) {
                 val starred = state.censoredSources[src] == true
                 val chosen = state.source == src && state.lyrics != null
                 if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 16.dp), color = scheme.onSurface.copy(alpha = 0.08f))
+                val isCustom = src == LyricsSource.CUSTOM
                 Row(
                     Modifier.fillMaxWidth()
-                        .clickable(enabled = st != ProviderState.NONE || src == LyricsSource.CUSTOM) {
-                            if (src == LyricsSource.CUSTOM && st == ProviderState.NONE) {
-                                close { state.editingCustom = true }
+                        .clickable(enabled = isCustom || st != ProviderState.NONE) {
+                            if (isCustom && st == ProviderState.NONE) {
+                                state.editingCustom = true
+                                close {}
                             } else {
                                 state.select(src)
                                 close {}
@@ -746,22 +769,25 @@ fun LyricsProviderSheet(state: LyricsState, onDismiss: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(
                             src.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
-                            color = when { chosen -> scheme.primary; st == ProviderState.NONE && src != LyricsSource.CUSTOM -> scheme.onSurface.copy(alpha = 0.4f); else -> scheme.onSurface },
+                            color = when { chosen -> scheme.primary; !isCustom && st == ProviderState.NONE -> scheme.onSurface.copy(alpha = 0.4f); else -> scheme.onSurface },
                         )
                         Text(
                             when (st) {
-                                ProviderState.LOADING, ProviderState.UNKNOWN -> if (src == LyricsSource.CUSTOM) "Custom user lyrics" else "Checking…"
+                                ProviderState.LOADING, ProviderState.UNKNOWN -> "Checking…"
                                 ProviderState.FOUND_SYNCED -> "Time-synced"
                                 ProviderState.FOUND_PLAIN -> "Plain text"
-                                ProviderState.NONE -> if (src == LyricsSource.CUSTOM) "Tap to add custom lyrics" else "Not available for this song"
+                                ProviderState.NONE -> if (isCustom) "Tap to add custom lyrics" else "Not available for this song"
                             } + if (starred && st != ProviderState.NONE) " · Censored" else "",
                             style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
                         )
                     }
-                    if (src == LyricsSource.CUSTOM) {
-                        IconButton(onClick = { close { state.editingCustom = true } }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Rounded.Edit, "Edit custom lyrics", tint = scheme.primary, modifier = Modifier.size(18.dp))
-                        }
+                    if (isCustom) {
+                        com.meow.music.ui.components.MeowChip(
+                            false,
+                            { state.editingCustom = true; close {} },
+                            if (st != ProviderState.NONE) "Edit" else "Add",
+                            icon = Icons.Rounded.Edit
+                        )
                         Spacer(Modifier.width(8.dp))
                     }
                     when {
@@ -777,32 +803,36 @@ fun LyricsProviderSheet(state: LyricsState, onDismiss: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomLyricsEditorSheet(state: LyricsState, onDismiss: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
+    val repo = LocalContainer.current.lyrics
     var text by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.song.id) {
-        text = state.getCustomText()
+        text = repo.getCustomRaw(state.song) ?: state.lyrics?.takeIf { state.source == LyricsSource.CUSTOM }?.plain ?: ""
         loaded = true
     }
 
     com.meow.music.ui.components.ActionSheet(state.song.thumbnail, onDismiss) { close ->
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+        Column(
+            Modifier
+                .padding(horizontal = 24.dp)
+                .fillMaxWidth()
+        ) {
             Text(
-                if (text.isBlank()) "Add custom lyrics" else "Edit custom lyrics",
+                "Edit Custom Lyrics",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 4.dp)
             )
-            Spacer(Modifier.height(4.dp))
             Text(
-                "Paste or enter lyrics for \"${state.song.title}\". Both line-synced LRC format (e.g. [00:12.34] lyric line) and plain text are supported.",
+                "Paste LRC lyrics with timestamps (e.g. [00:12.34] text) or plain text lyrics.",
                 style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
             )
-            Spacer(Modifier.height(16.dp))
 
             if (!loaded) {
-                Box(Modifier.fillMaxWidth().height(150.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
             } else {
@@ -811,45 +841,38 @@ fun CustomLyricsEditorSheet(state: LyricsState, onDismiss: () -> Unit) {
                     onValueChange = { text = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 180.dp, max = 320.dp),
-                    placeholder = {
-                        Text(
-                            "[00:12.34] First line of lyrics\n[00:18.50] Second line of lyrics\n...\nOr paste plain text lyrics here",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = scheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        )
-                    },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
-                    shape = RoundedCornerShape(12.dp),
+                        .height(240.dp),
+                    placeholder = { Text("[00:10.00] Lyric line 1\n[00:15.00] Lyric line 2") },
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 Spacer(Modifier.height(16.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (text.isNotBlank()) {
                         TextButton(
                             onClick = {
-                                close { state.deleteCustom() }
-                            },
+                                state.deleteCustom()
+                                close {}
+                            }
                         ) {
-                            Text("Clear", color = scheme.error)
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
                         }
                         Spacer(Modifier.weight(1f))
                     }
                     TextButton(onClick = { close {} }) {
-                        Text("Cancel", color = scheme.onSurfaceVariant)
+                        Text("Cancel")
                     }
                     Spacer(Modifier.width(8.dp))
-                    Button(
+                    FilledTonalButton(
                         onClick = {
-                            val input = text
-                            close { state.saveCustom(input) }
-                        },
-                        shape = RoundedCornerShape(20.dp),
+                            state.saveCustom(text)
+                            close {}
+                        }
                     ) {
                         Text("Save")
                     }
@@ -858,5 +881,3 @@ fun CustomLyricsEditorSheet(state: LyricsState, onDismiss: () -> Unit) {
         }
     }
 }
-
-

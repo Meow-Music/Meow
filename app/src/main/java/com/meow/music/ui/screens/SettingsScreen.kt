@@ -646,6 +646,17 @@ private fun SoundPage() {
 
 // ---------------------------------------------------------------------------- Lyrics
 
+
+
+/** Languages lyrics can be translated into (Google Translate codes); "" is the phone's own. */
+private val TRANSLATE_LANGUAGES = listOf(
+    "" to "Phone's language", "en" to "English", "es" to "Spanish", "pt" to "Portuguese", "fr" to "French",
+    "de" to "German", "it" to "Italian", "nl" to "Dutch", "pl" to "Polish", "tr" to "Turkish", "ru" to "Russian",
+    "uk" to "Ukrainian", "ar" to "Arabic", "hi" to "Hindi", "id" to "Indonesian", "vi" to "Vietnamese",
+    "tl" to "Filipino", "ja" to "Japanese", "ko" to "Korean", "zh-CN" to "Chinese (Simplified)", "zh-TW" to "Chinese (Traditional)",
+)
+
+
 @Composable
 private fun LyricsSettings() {
     val s = LocalAppSettings.current
@@ -655,6 +666,16 @@ private fun LyricsSettings() {
             Toggle("Prefer synced lyrics", "Skip plain-text results when a later source has time-synced lines", s.preferSynced) { prefs.setPreferSynced(it) }
             Toggle("Uncensor lyrics", "Fill starred-out swear words (f**k) back in from Genius, keeping word timings, and pass over a source that still stars them out", s.skipCensored) { prefs.setSkipCensored(it) }
             Toggle("Focus blur", "Lines further from the one being sung fall out of focus", s.lyricsBlur) { prefs.setLyricsBlur(it) }
+			Toggle(
+                "Translate lyrics",
+                "Each line in your language under it, when a song is in another one. Machine translation: the lyrics' text is sent to Google Translate",
+                s.lyricsTranslate,
+            ) { prefs.setLyricsTranslate(it) }
+            if (s.lyricsTranslate) {
+                Label("Translate into")
+                Chips(TRANSLATE_LANGUAGES.map { it.first }, s.lyricsTranslateTo.takeIf { code -> TRANSLATE_LANGUAGES.any { it.first == code } } ?: "",
+                    { code -> TRANSLATE_LANGUAGES.first { it.first == code }.second }) { prefs.setLyricsTranslateTo(it) }
+            }
             Label("Alignment")
             Chips(LyricsAlign.entries, s.lyricsAlign, { it.label }) { prefs.setLyricsAlign(it) }
             SliderSetting("Text size", s.lyricsScale, 0.75f..1.4f, { "${(it * 100).roundToInt()}%" }) { prefs.setLyricsScale(it) }
