@@ -257,11 +257,8 @@ data class AppSettings(
     /** Playlists shown as tiles after the shortcuts. */
     val homePlaylists: List<PinnedPlaylist> = emptyList(),
     val homeCustomizeButton: Boolean = false,
-    	+
     /** The round Customize button at the top of Home; separate from the one at the bottom. */
 
-
-262	+
     val homeCustomizeTopButton: Boolean = true,
     // Interface
     val fontChoice: FontChoice = FontChoice.ROUNDED,
