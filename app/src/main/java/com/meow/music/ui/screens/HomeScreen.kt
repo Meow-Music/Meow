@@ -251,6 +251,7 @@ private fun HomeTopBar() {
             com.meow.music.ui.components.Eyebrow(today)
             Text(headline, style = com.meow.music.ui.components.pageTitleStyle(), maxLines = 2)
         }
+        if (settings.homeCustomizeTopButton) {
         com.meow.music.ui.components.RoundAction(Icons.Rounded.Dashboard, "Customize home") { nav.go(Routes.CATALOGUE) }
         Spacer(Modifier.width(8.dp))
         Box(
