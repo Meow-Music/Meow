@@ -3,54 +3,15 @@ package com.meow.music.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Bolt
-import androidx.compose.material.icons.rounded.Groups
-import androidx.compose.material.icons.rounded.Headphones
-import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.QrCode
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material.icons.rounded.SkipNext
-import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.Wifi
-import androidx.compose.material.icons.rounded.WifiTethering
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.automirrored.rounded.Login
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.meow.music.data.internetroom.*
 import com.meow.music.data.model.Song
 import com.meow.music.playback.together.Msg
 import com.meow.music.playback.together.NearbySession
@@ -71,38 +33,73 @@ import com.meow.music.playback.together.Together
 import com.meow.music.playback.together.TogetherState
 import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.Routes
-import com.meow.music.ui.components.Artwork
-import com.meow.music.ui.components.Eyebrow
-import com.meow.music.ui.components.LocalFrosted
-import com.meow.music.ui.components.SubPage
-import com.meow.music.ui.components.featureInk
-import com.meow.music.ui.components.featurePane
-import com.meow.music.ui.components.pane
+import com.meow.music.ui.components.*
 import com.meow.music.ui.theme.LocalContainer
 import com.meow.music.ui.theme.LocalUi
 import kotlinx.coroutines.launch
 
 /**
- * Listen Together (Live Room): host a room on this phone or join one nearby on Wi-Fi.
- * Recreated for instant 1-tap setup, compact QR Code sharing, and zero-friction listening.
+ * Unified Live Room: Local Wi-Fi P2P rooms & Internet Cloud sync rooms.
+ * Supports same Wi-Fi, different Wi-Fi, and internet servers with zero-friction setup.
  */
 @Composable
 fun TogetherScreen(bottomPadding: Dp) {
     val c = LocalContainer.current
-    val state by c.together.state.collectAsState()
-    SubPage("Join Room", bottomPadding, horizontalPadding = 16.dp, spacing = 18.dp, subtitle = "Instant listening with friends on same Wi-Fi") {
-        when (val s = state) {
-            TogetherState.Idle -> item("idle") { Idle() }
-            is TogetherState.Joining -> item("joining") { Joining(s.hostName) }
-            is TogetherState.Hosting -> item("hosting") { Hosting(s) }
-            is TogetherState.Guest -> item("guest") { GuestView(s) }
+    val localState by c.together.state.collectAsState()
+
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Local Wi-Fi, 1: Internet Cloud
+
+    SubPage("Live Room & Sync", bottomPadding, horizontalPadding = 16.dp, spacing = 18.dp, subtitle = "Listen together on Wi-Fi or globally via internet server") {
+        item("tabs") {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .featurePane(LocalUi.current.card)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Button(
+                    onClick = { selectedTab = 0 },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Icon(Icons.Rounded.Wifi, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Local Wi-Fi")
+                }
+                Button(
+                    onClick = { selectedTab = 1 },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Icon(Icons.Rounded.Public, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Internet Cloud")
+                }
+            }
         }
-        item("how") { HowItWorks() }
+
+        if (selectedTab == 0) {
+            when (val s = localState) {
+                TogetherState.Idle -> item("idle") { LocalIdle() }
+                is TogetherState.Joining -> item("joining") { Joining(s.hostName) }
+                is TogetherState.Hosting -> item("hosting") { Hosting(s) }
+                is TogetherState.Guest -> item("guest") { GuestView(s) }
+            }
+            item("how") { HowItWorksLocal() }
+        } else {
+            item("internet_status") { InternetRoomContent() }
+            item("internet_how") { HowItWorksInternet() }
+        }
     }
 }
 
 @Composable
-private fun Idle() {
+private fun LocalIdle() {
     val c = LocalContainer.current
     val nearby by c.together.nearby.collectAsState()
     val scope = rememberCoroutineScope()
@@ -116,7 +113,6 @@ private fun Idle() {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        // Hero Card: 1-Tap Instant Room Creation
         Column(
             Modifier
                 .fillMaxWidth()
@@ -135,13 +131,13 @@ private fun Idle() {
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
-                    Text("Instant Live Room", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = featureInk())
-                    Text(" Open & Join on local Wi-Fi", style = MaterialTheme.typography.labelMedium, color = featureInk().copy(alpha = 0.75f))
+                    Text("Same Wi-Fi Live Room", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = featureInk())
+                    Text("Instant P2P connection on local network", style = MaterialTheme.typography.labelMedium, color = featureInk().copy(alpha = 0.75f))
                 }
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                "Start a room immediately. Friends on your Wi-Fi see your room and join with single tap!",
+                "Start a local room immediately. Friends on your Wi-Fi see your room and join with a single tap!",
                 style = MaterialTheme.typography.bodyMedium,
                 color = featureInk().copy(alpha = 0.85f),
             )
@@ -153,7 +149,7 @@ private fun Idle() {
                 ) {
                     Icon(Icons.Rounded.WifiTethering, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Start Live Room")
+                    Text("Start Room")
                 }
                 OutlinedButton(
                     onClick = { c.together.host(isPrivate = true) },
@@ -165,8 +161,7 @@ private fun Idle() {
             }
         }
 
-        // Nearby Sessions Group
-        Group("Live Rooms nearby") {
+        Group("Live Rooms nearby on Wi-Fi") {
             if (nearby.isEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -248,6 +243,288 @@ private fun Idle() {
 }
 
 @Composable
+private fun InternetRoomContent() {
+    val c = LocalContainer.current
+    val context = LocalContext.current
+    val roomState by c.internetRoom.roomState.collectAsState()
+    val connectionState by c.internetRoom.connectionState.collectAsState()
+    val role by c.internetRoom.role.collectAsState()
+    val settings = c.settings.current
+
+    var username by remember { mutableStateOf(settings.internetRoomUsername.ifBlank { settings.displayName }) }
+    var roomCodeInput by remember { mutableStateOf("") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .featurePane(LocalUi.current.card)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = when (connectionState) {
+                        ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primaryContainer
+                        ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> MaterialTheme.colorScheme.secondaryContainer
+                        else -> MaterialTheme.colorScheme.errorContainer
+                    },
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            when (connectionState) {
+                                ConnectionState.CONNECTED -> Icons.Rounded.CloudDone
+                                ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> Icons.Rounded.Sync
+                                else -> Icons.Rounded.CloudOff
+                            },
+                            null,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Internet & Cellular Sync", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        when (connectionState) {
+                            ConnectionState.CONNECTED -> "Connected"
+                            ConnectionState.CONNECTING -> "Connecting to server…"
+                            ConnectionState.RECONNECTING -> "Reconnecting…"
+                            else -> "Disconnected"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (roomState == null) {
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = {
+                        username = it
+                        c.settings.setInternetRoomUsername(it)
+                    },
+                    label = { Text("Your Display Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = roomCodeInput,
+                    onValueChange = { roomCodeInput = it.uppercase() },
+                    label = { Text("Room Code (to join)") },
+                    placeholder = { Text("ABC12345") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            try {
+                                c.internetRoom.createRoom(username.ifBlank { "Master" })
+                                Toast.makeText(context, "Creating room…", Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Create Room")
+                    }
+                    Button(
+                        onClick = {
+                            try {
+                                if (roomCodeInput.isNotBlank()) {
+                                    c.internetRoom.joinRoom(roomCodeInput.trim(), username.ifBlank { "Guest" })
+                                    Toast.makeText(context, "Joining room…", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        enabled = roomCodeInput.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Login, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Join Room")
+                    }
+                }
+            } else {
+                val rs = roomState!!
+                val pendingRequests by c.internetRoom.pendingJoinRequests.collectAsState()
+                val listenHere by c.internetRoom.listenHere.collectAsState()
+                val inSync by c.internetRoom.inSync.collectAsState()
+
+                val currentSong = rs.currentTrack?.let { t ->
+                    com.meow.music.data.model.Song(
+                        id = t.id,
+                        title = t.title,
+                        artists = listOf(com.meow.music.data.model.ArtistRef(name = t.artist)),
+                        album = t.album?.let { com.meow.music.data.model.AlbumRef(title = it) },
+                        durationSec = (t.duration / 1000L).toInt(),
+                        thumbnail = t.thumbnail
+                    )
+                }
+
+                Text("Room Code: ${rs.roomCode}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Role: $role • Users: ${rs.users.size}", style = MaterialTheme.typography.bodyMedium)
+
+                Spacer(Modifier.height(8.dp))
+                NowPlayingCard(currentSong, if (role == RoomRole.HOST) "Hosting Internet Room" else "Connected to Internet Room")
+
+                if (role == RoomRole.HOST || (role == RoomRole.GUEST && rs.allowParticipantControl)) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { c.internetRoom.control("previous") }) { Icon(Icons.Rounded.SkipPrevious, "Previous", Modifier.size(30.dp)) }
+                        Spacer(Modifier.width(18.dp))
+                        Box(
+                            Modifier.size(58.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                                .clickable { c.internetRoom.control(if (rs.isPlaying) "pause" else "play") },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(if (rs.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (rs.isPlaying) "Pause" else "Play", Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                        Spacer(Modifier.width(18.dp))
+                        IconButton(onClick = { c.internetRoom.control("next") }) { Icon(Icons.Rounded.SkipNext, "Next", Modifier.size(30.dp)) }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Group("Playback Sync") {
+                    Toggle(
+                        "Sync Audio Here", "Listen to internet room playback on this phone in real time.",
+                        listenHere,
+                    ) { c.internetRoom.setListenHere(it) }
+                    if (listenHere && !inSync) Item(
+                        "Out of step", "Tap to resync audio with room stream.",
+                        onClick = { c.internetRoom.resync() }, icon = Icons.Rounded.Sync,
+                    )
+                }
+
+                if (role == RoomRole.HOST) {
+                    val pendingSuggestions by c.internetRoom.pendingSuggestions.collectAsState()
+
+                    Spacer(Modifier.height(8.dp))
+                    Toggle(
+                        "Allow guest playback controls", "Guests can play, pause, and skip from their phones.",
+                        rs.allowParticipantControl,
+                    ) { c.internetRoom.setAllowParticipantControl(it) }
+
+                    if (pendingSuggestions.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Pending Song Suggestions (${pendingSuggestions.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        pendingSuggestions.forEach { sug ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(sug.trackInfo.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text("Suggested by ${sug.fromUsername}", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Button(
+                                    onClick = { c.internetRoom.approveSuggestion(sug.suggestionId) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Approve")
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = { c.internetRoom.rejectSuggestion(sug.suggestionId) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Reject")
+                                }
+                            }
+                        }
+                    }
+
+                    if (pendingRequests.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Pending Join Requests (${pendingRequests.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        pendingRequests.forEach { req ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(req.username, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                                Button(
+                                    onClick = { c.internetRoom.approveJoin(req.userId) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Approve")
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                OutlinedButton(
+                                    onClick = { c.internetRoom.rejectJoin(req.userId) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Reject")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text("Connected Users (${rs.users.size})", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                rs.users.forEach { user ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(user.username + if (user.isHost) " (Host)" else "", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(if (user.isConnected) "Connected" else "Disconnected", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (role == RoomRole.HOST && !user.isHost) {
+                            OutlinedButton(
+                                onClick = { c.internetRoom.kickUser(user.userId, "Kicked by host") },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text("Kick")
+                            }
+                        }
+                    }
+                }
+
+                val queueSongs = rs.queue.map { t ->
+                    com.meow.music.data.model.Song(
+                        id = t.id,
+                        title = t.title,
+                        artists = listOf(com.meow.music.data.model.ArtistRef(name = t.artist)),
+                        album = t.album?.let { com.meow.music.data.model.AlbumRef(title = it) },
+                        durationSec = (t.duration / 1000L).toInt(),
+                        thumbnail = t.thumbnail
+                    )
+                }
+                if (queueSongs.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("Room Queue", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    queueSongs.take(8).forEach { song -> QueueLine(song) }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { c.internetRoom.leaveRoom() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Leave / End Internet Room")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun JoinDialog(name: String, askAddress: Boolean, onDismiss: () -> Unit, onJoin: (address: String, code: String) -> Unit) {
     var address by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
@@ -304,7 +581,6 @@ private fun Hosting(s: TogetherState.Hosting) {
             Eyebrow(if (s.isPrivate) "🔒 Private PIN Room Active" else "⚡ Open Live Room Active", color = ink.copy(alpha = 0.8f))
             Spacer(Modifier.height(8.dp))
 
-            // IP Address & PIN Display Box
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.35f),
@@ -315,7 +591,6 @@ private fun Hosting(s: TogetherState.Hosting) {
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // IP Address Section
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -347,7 +622,6 @@ private fun Hosting(s: TogetherState.Hosting) {
 
                     Box(Modifier.width(1.dp).height(38.dp).background(ink.copy(alpha = 0.2f)))
 
-                    // PIN / Code Section
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -485,40 +759,19 @@ private fun HostControls(now: Msg.State) {
 }
 
 @Composable
-private fun NowPlayingCard(song: Song?, caption: String) {
-    val ui = LocalUi.current
-    Row(
-        Modifier.fillMaxWidth().pane(ui.card, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f)).padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Artwork(song?.thumbnail, Modifier.size(72.dp), ui.art, size = 300)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Eyebrow(caption)
-            Text(song?.title ?: "Nothing playing yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            song?.let { Text(it.artistText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        }
-    }
-}
-
-@Composable
-private fun QueueLine(song: Song) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Artwork(song.thumbnail, Modifier.size(40.dp), LocalUi.current.smallArt, size = 120)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(song.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artistText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun HowItWorks() {
-    Group("How it works") {
-        Note("• Everyone needs Meow on the same Wi-Fi network or hotspot.")
-        Note("• Open Rooms allow friends to join instantly with 1 tap.")
+private fun HowItWorksLocal() {
+    Group("How it works (Local Wi-Fi)") {
+        Note("• Same Wi-Fi: Everyone needs Meow on the same Wi-Fi network or hotspot.")
         Note("• Direct P2P local connections mean zero server lag and zero data leaks.")
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+@Composable
+private fun HowItWorksInternet() {
+    Group("How it works (Internet Cloud)") {
+        Note("• Different Wi-Fi / Cellular: Connects globally via secure WebSocket sync servers.")
+        Note("• Create or join rooms with a unique room code from anywhere in the world.")
         Spacer(Modifier.height(6.dp))
     }
 }

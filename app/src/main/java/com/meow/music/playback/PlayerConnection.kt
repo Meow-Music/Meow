@@ -46,6 +46,12 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
 
     val player: ExoPlayer? get() = service?.player
 
+    var allowInternalSync: Boolean = false
+    var queueTitle: String? = null
+    val queueWindows: StateFlow<List<QueueEntry>> get() = queue
+    fun play() = setPlaying(true)
+    fun pause() = setPlaying(false)
+
     private val _current = MutableStateFlow<Song?>(null)
     val currentSong: StateFlow<Song?> = _current
     private val _isPlaying = MutableStateFlow(false)
@@ -224,10 +230,65 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     private val videoSongs = java.util.concurrent.ConcurrentHashMap<String, Song>()
     private var playToken = 0
 
+    // ------------------------------------------------------------ Session Guest Interception
+
+    private val isLanGuest: Boolean
+        get() = c.together.state.value is com.meow.music.playback.together.TogetherState.Guest
+
+    private val lanGuestState: com.meow.music.playback.together.TogetherState.Guest?
+        get() = c.together.state.value as? com.meow.music.playback.together.TogetherState.Guest
+
+    private val isInternetGuest: Boolean
+        get() = c.internetRoom.role.value == com.meow.music.data.internetroom.RoomRole.GUEST
+
+    val isGuestInSession: Boolean
+        get() = isLanGuest || isInternetGuest
+
+    val isFollowingHost: Boolean
+        get() = when {
+            isLanGuest -> c.queue.followingHost
+            isInternetGuest -> c.internetRoom.listenHere.value
+            else -> false
+        }
+
     fun playQueue(songs: List<Song>, startIndex: Int = 0, source: QueueSource, shuffle: Boolean = false) {
         if (songs.isEmpty()) return
+        val tapped = songs.getOrNull(startIndex.coerceIn(0, songs.lastIndex)) ?: return
+        if (isGuestInSession && isFollowingHost) {
+            val hostName = lanGuestState?.hostName ?: "Internet Room"
+            if (isInternetGuest) {
+                val trackInfo = com.meow.music.data.internetroom.TrackInfo(
+                    id = tapped.id,
+                    title = tapped.title,
+                    artist = tapped.artistText,
+                    album = tapped.album?.title,
+                    duration = (tapped.durationSec * 1000L),
+                    thumbnail = tapped.thumbnail
+                )
+                val queueInfos = songs.drop(startIndex + 1).map { s ->
+                    com.meow.music.data.internetroom.TrackInfo(
+                        id = s.id,
+                        title = s.title,
+                        artist = s.artistText,
+                        album = s.album?.title,
+                        duration = (s.durationSec * 1000L),
+                        thumbnail = s.thumbnail
+                    )
+                }
+                c.internetRoom.client.sendPlaybackAction(
+                    action = "change_track",
+                    trackId = tapped.id,
+                    position = 0L,
+                    trackInfo = trackInfo,
+                    queue = queueInfos
+                )
+            } else {
+                c.together.suggest(tapped, next = true)
+            }
+            reportError("Requested ${tapped.title} from $hostName")
+            return
+        }
         val token = ++playToken
-        val tapped = songs[startIndex.coerceIn(0, songs.lastIndex)]
         // Live streams play as they are: they have no "song version" to swap in.
         if (shuffle || !tapped.isVideo || tapped.isLive) { startQueue(songs, startIndex, source, shuffle, null); return }
         // A music video or live performance opens as the song it's of, already showing the video
@@ -264,18 +325,45 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
 
     fun playRadio(song: Song) = playQueue(listOf(song), 0, QueueSource(QueueKind.SINGLE, "${song.title} Radio", seedId = song.id))
 
-    fun playNext(song: Song) = withPlayer { p ->
-        if (p.mediaItemCount == 0) playSingle(song)
-        else p.addMediaItem(p.currentMediaItemIndex + 1, song.toMediaItem())
+    fun playNext(song: Song) {
+        if (isGuestInSession) {
+            val hostName = lanGuestState?.hostName ?: "Internet Room"
+            if (isLanGuest) c.together.suggest(song, next = true)
+            else c.internetRoom.suggestTrack(song, next = true)
+            reportError("Sent to $hostName")
+            return
+        }
+        withPlayer { p ->
+            if (p.mediaItemCount == 0) playSingle(song)
+            else p.addMediaItem(p.currentMediaItemIndex + 1, song.toMediaItem())
+        }
     }
 
-    fun addToQueue(song: Song) = withPlayer { p ->
-        if (p.mediaItemCount == 0) playSingle(song) else p.addMediaItem(song.toMediaItem())
+    fun addToQueue(song: Song) {
+        if (isGuestInSession) {
+            val hostName = lanGuestState?.hostName ?: "Internet Room"
+            if (isLanGuest) c.together.suggest(song, next = false)
+            else c.internetRoom.suggestTrack(song, next = false)
+            reportError("Sent to $hostName")
+            return
+        }
+        withPlayer { p ->
+            if (p.mediaItemCount == 0) playSingle(song) else p.addMediaItem(song.toMediaItem())
+        }
     }
 
     /** A whole album or playlist straight after the current song (or played, with nothing on). */
     fun playNext(songs: List<Song>, source: QueueSource) {
         if (songs.isEmpty()) return
+        if (isGuestInSession) {
+            val hostName = lanGuestState?.hostName ?: "Internet Room"
+            songs.forEach { s ->
+                if (isLanGuest) c.together.suggest(s, next = true)
+                else c.internetRoom.suggestTrack(s, next = true)
+            }
+            reportError("Sent ${songs.size} songs to $hostName")
+            return
+        }
         withPlayer { p ->
             if (p.mediaItemCount == 0) playQueue(songs, 0, source)
             else p.addMediaItems(p.currentMediaItemIndex + 1, songs.map { it.toMediaItem() })
@@ -285,6 +373,15 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     /** A whole album or playlist at the end of the queue (or played, with nothing on). */
     fun addToQueue(songs: List<Song>, source: QueueSource) {
         if (songs.isEmpty()) return
+        if (isGuestInSession) {
+            val hostName = lanGuestState?.hostName ?: "Internet Room"
+            songs.forEach { s ->
+                if (isLanGuest) c.together.suggest(s, next = false)
+                else c.internetRoom.suggestTrack(s, next = false)
+            }
+            reportError("Sent ${songs.size} songs to $hostName")
+            return
+        }
         withPlayer { p ->
             if (p.mediaItemCount == 0) playQueue(songs, 0, source) else p.addMediaItems(songs.map { it.toMediaItem() })
         }
@@ -319,12 +416,21 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     /** The listener wants it playing (it may still be buffering). */
     val playWhenReady: Boolean get() = player?.playWhenReady ?: false
 
-    fun setPlaying(playing: Boolean) = withPlayer { p ->
-        if (playing) {
-            ensureStarted()
-            if (p.playbackState == Player.STATE_IDLE) p.prepare()
-            p.play()
-        } else p.pause()
+    fun setPlaying(playing: Boolean) {
+        if (isGuestInSession) {
+            val action = if (playing) "play" else "pause"
+            if (isLanGuest) c.together.control(action)
+            else c.internetRoom.control(action)
+            withPlayer { if (playing) { ensureStarted(); if (it.playbackState == Player.STATE_IDLE) it.prepare(); it.play() } else it.pause() }
+            return
+        }
+        withPlayer { p ->
+            if (playing) {
+                ensureStarted()
+                if (p.playbackState == Player.STATE_IDLE) p.prepare()
+                p.play()
+            } else p.pause()
+        }
     }
 
     /** Takes everything after the current song out of the queue. */
@@ -334,16 +440,52 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         c.queue.autoplayStart.value = -1
     }
 
-    fun togglePlay() = withPlayer { p ->
-        if (!p.isPlaying) ensureStarted()
-        if (p.playbackState == Player.STATE_IDLE) p.prepare()
-        if (p.playbackState == Player.STATE_ENDED) p.seekTo(0, 0)
-        if (p.isPlaying) p.pause() else p.play()
+    fun togglePlay() {
+        if (isGuestInSession) {
+            setPlaying(!_isPlaying.value)
+            return
+        }
+        withPlayer { p ->
+            if (!p.isPlaying) ensureStarted()
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0, 0)
+            if (p.isPlaying) p.pause() else p.play()
+        }
     }
 
-    fun next() = withPlayer { it.seekToNext() }
-    fun previous() = withPlayer { it.seekToPrevious() }
-    fun seekTo(ms: Long) = withPlayer { it.seekTo(ms) }
+    fun next() {
+        if (isGuestInSession) {
+            if (isLanGuest) c.together.control("next")
+            else c.internetRoom.control("next")
+            return
+        }
+        withPlayer { p ->
+            if (p.hasNextMediaItem()) p.seekToNext()
+            else p.seekToDefaultPosition(p.currentMediaItemIndex)
+        }
+    }
+
+    fun previous() {
+        if (isGuestInSession) {
+            if (isLanGuest) c.together.control("previous")
+            else c.internetRoom.control("previous")
+            return
+        }
+        withPlayer { p ->
+            if (p.hasPreviousMediaItem()) p.seekToPrevious()
+            else p.seekTo(0)
+        }
+    }
+
+    fun seekTo(ms: Long) {
+        if (isGuestInSession) {
+            if (isLanGuest) c.together.control("seek", ms)
+            else c.internetRoom.control("seek", positionMs = ms)
+            withPlayer { it.seekTo(ms) }
+            return
+        }
+        withPlayer { it.seekTo(ms) }
+    }
     fun skipTo(index: Int) = withPlayer { p ->
         p.seekToDefaultPosition(index)
         if (p.playbackState == Player.STATE_IDLE) p.prepare()

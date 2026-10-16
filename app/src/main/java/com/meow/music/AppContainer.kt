@@ -147,6 +147,8 @@ class AppContainer(val app: Application) {
     val player = PlayerConnection(app, this)
     /** Listen Together sessions on the local network. */
     val together by lazy { com.meow.music.playback.together.Together(app, this) }
+    val internetClient by lazy { com.meow.music.data.internetroom.InternetListenTogetherClient(app) }
+    val internetRoom by lazy { com.meow.music.data.internetroom.InternetListenTogetherManager(internetClient, app, this).apply { setPlayerConnection(player) } }
 
     private fun Cache.fullyCached(key: String, position: Long, length: Long): Boolean {
         val total = ContentMetadata.getContentLength(getContentMetadata(key))

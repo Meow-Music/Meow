@@ -1,6 +1,7 @@
 package com.meow.music.data.prefs
 
 import android.content.Context
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -20,7 +21,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-private val Context.dataStore by preferencesDataStore("meow_settings")
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore("meow_settings")
 
 enum class ThemeMode(val label: String) { SYSTEM("System"), LIGHT("Light"), DARK("Dark") }
 enum class ColorSource(val label: String) { ARTWORK("Now playing"), DYNAMIC("Wallpaper"), CUSTOM("Custom") }
@@ -260,7 +261,7 @@ data class AppSettings(
     /** Replay shows listening time as hours and minutes (20h 4m) instead of minutes (1,204 min). */
     val replayHours: Boolean = true,
     val greetingEnable: Boolean = true,
-    /** Home's headline; blank means good morning / afternoon / evening. */
+    /** Home's headline; blank means good morning / afternoon / evening / night. */
     val greetingText: String = "",
     val greetingShowName: Boolean = true,
     val customName: String = "",
@@ -310,6 +311,11 @@ data class AppSettings(
     val replayThemeColors: Boolean = false,
     val appIconType: AppIconType = AppIconType.DEFAULT,
     val showLiveRoomNavBadge: Boolean = true,
+    val internetRoomServerUrl: String = "wss://metroserverx.meowery.eu/ws",
+    val internetRoomUsername: String = "",
+    val internetRoomAutoApproval: Boolean = false,
+    val internetRoomSmartResync: Boolean = true,
+    val internetRoomSyncVolume: Boolean = true,
 ) {
     val isLoggedIn: Boolean get() = cookie.contains("SAPISID")
 
@@ -432,6 +438,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val frostedPages = booleanPreferencesKey("frosted_pages")
         val replayThemeColors = booleanPreferencesKey("replay_theme_colors")
         val showLiveRoomNavBadge = booleanPreferencesKey("show_live_room_nav_badge")
+        val internetRoomServerUrl = stringPreferencesKey("internet_room_server_url")
+        val internetRoomUsername = stringPreferencesKey("internet_room_username")
+        val internetRoomAutoApproval = booleanPreferencesKey("internet_room_auto_approval")
+        val internetRoomSmartResync = booleanPreferencesKey("internet_room_smart_resync")
+        val internetRoomSyncVolume = booleanPreferencesKey("internet_room_sync_volume")
 
         /** Everything the "Reset look" button puts back. */
         val look: List<Preferences.Key<*>> by lazy {
@@ -567,6 +578,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             replayThemeColors = p[K.replayThemeColors] ?: d.replayThemeColors,
             appIconType = p.enum(K.appIconType, d.appIconType),
             showLiveRoomNavBadge = p[K.showLiveRoomNavBadge] ?: d.showLiveRoomNavBadge,
+            internetRoomServerUrl = p[K.internetRoomServerUrl] ?: d.internetRoomServerUrl,
+            internetRoomUsername = p[K.internetRoomUsername] ?: d.internetRoomUsername,
+            internetRoomAutoApproval = p[K.internetRoomAutoApproval] ?: d.internetRoomAutoApproval,
+            internetRoomSmartResync = p[K.internetRoomSmartResync] ?: d.internetRoomSmartResync,
+            internetRoomSyncVolume = p[K.internetRoomSyncVolume] ?: d.internetRoomSyncVolume,
         )
     }
 
@@ -715,6 +731,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setContentCountry(v: String) = edit { it[K.contentCountry] = v }
 
     fun setShowLiveRoomNavBadge(v: Boolean) = edit { it[K.showLiveRoomNavBadge] = v }
+    fun setInternetRoomServerUrl(v: String) = edit { it[K.internetRoomServerUrl] = v }
+    fun setInternetRoomUsername(v: String) = edit { it[K.internetRoomUsername] = v }
+    fun setInternetRoomAutoApproval(v: Boolean) = edit { it[K.internetRoomAutoApproval] = v }
+    fun setInternetRoomSmartResync(v: Boolean) = edit { it[K.internetRoomSmartResync] = v }
+    fun setInternetRoomSyncVolume(v: Boolean) = edit { it[K.internetRoomSyncVolume] = v }
 
     /** Puts every look & layout option back to how Meow ships (colours and backgrounds are left alone). */
     @Suppress("UNCHECKED_CAST")

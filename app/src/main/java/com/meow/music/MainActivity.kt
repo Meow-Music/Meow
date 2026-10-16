@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val c = container
         c.player.connect()
+        c.internetRoom.setPlayerConnection(c.player)
         if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         SmartDownloadWorker.schedule(this, c.settings.current.smartDownloads)
         // Tidies the smart-download queue (it only adds more if it's been a while).
@@ -415,6 +416,7 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         composable(Routes.MOODS) { ScreenBackdrop(BackdropScreen.SEARCH) { com.meow.music.ui.screens.MoodsScreen(bottomPadding) } }
                         composable(Routes.IMPORT) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.ImportScreen(bottomPadding) } }
                         composable(Routes.TOGETHER) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.TogetherScreen(bottomPadding) } }
+                        composable(Routes.INTERNET_ROOM) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.InternetRoomScreen(bottomPadding) } }
                         composable(Routes.PODCASTS) { ScreenBackdrop(BackdropScreen.HOME) { com.meow.music.ui.screens.PodcastsScreen(bottomPadding) } }
                         composable(Routes.LOCAL_MUSIC) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.LocalMusicScreen(bottomPadding) } }
                         composable(Routes.LICENSES) { ScreenBackdrop(BackdropScreen.SETTINGS) { com.meow.music.ui.screens.LicensesPage() } }

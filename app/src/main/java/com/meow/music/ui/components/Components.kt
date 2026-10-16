@@ -1,5 +1,6 @@
 package com.meow.music.ui.components
 
+import com.meow.music.ui.theme.LocalUi
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.automirrored.rounded.Sort
@@ -492,7 +493,15 @@ fun SongActionsSheet(song: Song, extra: List<SheetItem> = emptyList(), onDismiss
     val dl = downloads[song.id]
     val downloaded = dl?.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED
     val together by c.together.state.collectAsState()
+    val roomRole by c.internetRoom.role.collectAsState()
+    val roomState by c.internetRoom.roomState.collectAsState()
     val guest = together as? com.meow.music.playback.together.TogetherState.Guest
+    val isInternetGuest = roomRole == com.meow.music.data.internetroom.RoomRole.GUEST
+    val sessionHostName = when {
+        guest != null -> guest.hostName
+        isInternetGuest -> "Internet Room ${roomState?.roomCode ?: ""}".trim()
+        else -> null
+    }
     fun toast(text: String) = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
 
     // The playlist picker and the share sheet take over from the sheet.
@@ -501,10 +510,16 @@ fun SongActionsSheet(song: Song, extra: List<SheetItem> = emptyList(), onDismiss
 
     // In someone's Listen Together session, songs go into their queue.
     val quick = listOf(
-        if (guest != null) ActionItem(Icons.Rounded.Groups, "Play next") { c.together.suggest(song, next = true); toast("Sent to ${guest.hostName}") }
-        else ActionItem(Icons.Rounded.PlaylistPlay, "Play next") { c.player.playNext(song) },
-        if (guest != null) ActionItem(Icons.Rounded.GroupAdd, "Add to queue") { c.together.suggest(song, next = false); toast("Sent to ${guest.hostName}") }
-        else ActionItem(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { c.player.addToQueue(song) },
+        if (sessionHostName != null) ActionItem(Icons.Rounded.Groups, "Play next") {
+            if (guest != null) c.together.suggest(song, next = true)
+            else c.internetRoom.suggestTrack(song, next = true)
+            toast("Sent to $sessionHostName")
+        } else ActionItem(Icons.Rounded.PlaylistPlay, "Play next") { c.player.playNext(song) },
+        if (sessionHostName != null) ActionItem(Icons.Rounded.GroupAdd, "Add to queue") {
+            if (guest != null) c.together.suggest(song, next = false)
+            else c.internetRoom.suggestTrack(song, next = false)
+            toast("Sent to $sessionHostName")
+        } else ActionItem(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { c.player.addToQueue(song) },
         ActionItem(Icons.Rounded.Radio, "Radio") { c.player.playRadio(song) },
         ActionItem(
             if (downloaded) Icons.Rounded.DownloadDone else Icons.Rounded.Download, "Download",
@@ -539,8 +554,8 @@ fun SongActionsSheet(song: Song, extra: List<SheetItem> = emptyList(), onDismiss
             }
             SheetIconButton(Icons.Rounded.Share, "Share") { sharing = true }
         }
-        if (guest != null) Text(
-            "Adding to ${guest.hostName}'s session", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+        if (sessionHostName != null) Text(
+            "Adding to $sessionHostName", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 24.dp, bottom = 8.dp),
         )
         QuickActions(quick) { runAction(it, close) }
@@ -653,6 +668,35 @@ fun NewPlaylistDialog(onDismiss: () -> Unit, onCreate: (name: String, privacy: S
         confirmButton = { TextButton(onClick = { onCreate(name.trim(), privacy) }, enabled = name.isNotBlank()) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+@Composable
+fun NowPlayingCard(song: Song?, caption: String) {
+    val ui = LocalUi.current
+    Row(
+        Modifier.fillMaxWidth().pane(ui.card, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f)).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Artwork(song?.thumbnail, Modifier.size(72.dp), ui.art, size = 300)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Eyebrow(caption)
+            Text(song?.title ?: "Nothing playing yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            song?.let { Text(it.artistText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+        }
+    }
+}
+
+@Composable
+fun QueueLine(song: Song) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Artwork(song.thumbnail, Modifier.size(40.dp), LocalUi.current.smallArt, size = 120)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(song.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(song.artistText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+    }
 }
 
 /** Chips that follow a pager: tap to jump, or swipe the pages and the chip moves along. */

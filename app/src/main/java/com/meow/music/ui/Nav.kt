@@ -34,6 +34,7 @@ object Routes {
     const val BACKGROUNDS = "backgrounds"
     const val IMPORT = "import"
     const val TOGETHER = "together"
+    const val INTERNET_ROOM = "internet_room"
     const val PODCASTS = "podcasts"
     const val LOCAL_MUSIC = "local_music"
     const val LICENSES = "licenses"

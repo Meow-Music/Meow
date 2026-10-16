@@ -228,9 +228,10 @@ private fun HomeTopBar() {
     val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     val timeGreeting = remember(hour) {
         when (hour) {
-            in 5..11 -> "Good morning"
+            in 0..11 -> "Good morning"
             in 12..16 -> "Good afternoon"
-            else -> "Good evening"
+            in 17..19 -> "Good evening"
+            else -> "Good night"
         }
     }
     val name = settings.displayName

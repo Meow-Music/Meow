@@ -51,6 +51,8 @@ fun SwipeToQueue(song: Song, modifier: Modifier = Modifier, content: @Composable
     val context = LocalContext.current
     val haptics = rememberHaptics()
     val together by c.together.state.collectAsState()
+    val roomRole by c.internetRoom.role.collectAsState()
+    val roomState by c.internetRoom.roomState.collectAsState()
     val density = LocalDensity.current
     val mark = with(density) { 84.dp.toPx() }
     val reach = with(density) { 150.dp.toPx() }
@@ -58,10 +60,17 @@ fun SwipeToQueue(song: Song, modifier: Modifier = Modifier, content: @Composable
     val scheme = MaterialTheme.colorScheme
 
     fun queue(next: Boolean) {
-        val guest = (together as? com.meow.music.playback.together.TogetherState.Guest)?.takeIf { !song.isLocal }
-        val text = if (guest != null) {
-            c.together.suggest(song, next = next)
-            "Sent to ${guest.hostName}"
+        val lanGuest = (together as? com.meow.music.playback.together.TogetherState.Guest)?.takeIf { !song.isLocal }
+        val isInternetGuest = (roomRole == com.meow.music.data.internetroom.RoomRole.GUEST) && !song.isLocal
+        val hostName = when {
+            lanGuest != null -> lanGuest.hostName
+            isInternetGuest -> "Internet Room ${roomState?.roomCode ?: ""}".trim()
+            else -> null
+        }
+        val text = if (hostName != null) {
+            if (lanGuest != null) c.together.suggest(song, next = next)
+            else c.internetRoom.suggestTrack(song, next = next)
+            "Sent to $hostName"
         } else {
             if (next) c.player.playNext(song) else c.player.addToQueue(song)
             if (next) "Playing next" else "Added to queue"

@@ -84,7 +84,7 @@ fun Song.fromPeer(): Song? {
     val thumb = thumbnail?.takeIf { t ->
         val u = runCatching { java.net.URI(t) }.getOrNull()
         u?.scheme == "https" && u.host?.lowercase()?.let { h -> imageHosts.any { h.endsWith(it) } } == true
-    }
+    } ?: "https://i.ytimg.com/vi/$id/hqdefault.jpg".takeIf { id.length == 11 }
     return copy(
         title = title.take(300),
         artists = artists.take(10).map { it.copy(name = it.name.take(200)) },

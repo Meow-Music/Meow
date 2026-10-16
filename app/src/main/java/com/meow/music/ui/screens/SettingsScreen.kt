@@ -1438,6 +1438,15 @@ private fun LiveRoomSettings() {
             Item("1-Tap Open Join", "Friends on your Wi-Fi join automatically without entering a PIN", onClick = {})
             Item("Local Network Privacy", "P2P socket streaming without external servers or cloud accounts", onClick = {})
         }
+        Group("Internet Room (Cloud Sync)") {
+            Item("Go to Internet Room", "Host or join global internet sync rooms across the cloud", onClick = { nav.go(Routes.INTERNET_ROOM) }) { Chevron() }
+            Toggle("Auto-approve join requests", "Automatically let joining participants into your internet room", s.internetRoomAutoApproval) {
+                c.settings.setInternetRoomAutoApproval(it)
+            }
+            Toggle("Smart Resync", "Automatically resync audio when drift exceeds tolerance", s.internetRoomSmartResync) {
+                c.settings.setInternetRoomSmartResync(it)
+            }
+        }
     }
 }
 

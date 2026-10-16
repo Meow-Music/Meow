@@ -15,8 +15,8 @@ android {
         applicationId = "com.meow.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "1.2.1"
+        versionCode = 22
+        versionName = "1.2.2"
         vectorDrawables { useSupportLibrary = true }
         // Optional: `lastfm.apiKey=…` in local.properties lets genre detection ask Last.fm too.
         val localProps = Properties().apply {
@@ -129,6 +129,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.11.0")

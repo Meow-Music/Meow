@@ -3,10 +3,8 @@
     <string name="app_name">Meow</string>
     <string name="downloads">Downloads</string>
     <string name="playback">Playback</string>
-    <!-- In other apps' share sheets, for YouTube and YouTube Music links. -->
     <string name="open_in_meow">Play in Meow</string>
 
-    <!-- Widgets -->
     <string name="widget_prism_name">Meow</string>
     <string name="widget_prism_desc">Now playing on frosted glass made from the cover</string>
     <string name="widget_spotify_name">Meow · Spotify style</string>
@@ -25,5 +23,14 @@
     <string name="widget_next">Next</string>
     <string name="widget_previous">Previous</string>
     <string name="widget_like">Like</string>
-</resources>
 
+    <string name="listen_together">Internet Room</string>
+    <string name="listen_together_notification_channel_name">Internet Room Channel</string>
+    <string name="listen_together_notification_channel_desc">Notifications for Internet Room events</string>
+    <string name="listen_together_join_request_notification">%s wants to join your room</string>
+    <string name="listen_together_suggestion_received">%1$s suggested %2$s</string>
+    <string name="listen_together_room_created">Room created: %s</string>
+    <string name="listen_together_suggestion_sent">Suggestion sent to room</string>
+    <string name="approve">Approve</string>
+    <string name="reject">Reject</string>
+</resources>

@@ -324,6 +324,15 @@ class MeowDownloadService : DownloadService(
     override fun getForegroundNotification(downloads: MutableList<Download>, notMetRequirements: Int): Notification =
         DownloadNotificationHelper(this, DOWNLOAD_CHANNEL)
             .buildProgressNotification(this, R.drawable.default_logo, null, null, downloads, notMetRequirements)
+
+    override fun onStartCommand(intent: android.content.Intent?, flags: Int, startId: Int): Int {
+        return try {
+            super.onStartCommand(intent, flags, startId)
+        } catch (e: Exception) {
+            android.util.Log.e("MeowDownloadService", "Error in onStartCommand", e)
+            START_STICKY
+        }
+    }
 }
 
 /** Sizes offered for smart downloads, in GB. */
