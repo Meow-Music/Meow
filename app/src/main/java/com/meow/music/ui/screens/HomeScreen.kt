@@ -78,7 +78,6 @@ import com.meow.music.data.prefs.SectionStyle
 import com.meow.music.playback.QueueKind
 import com.meow.music.playback.QueueSource
 import com.meow.music.ui.Load
-import com.meow.music.ui.rememberLoad
 import com.meow.music.ui.LocalNavigator
 import com.meow.music.ui.Routes
 import com.meow.music.ui.components.Artwork
@@ -92,8 +91,8 @@ import com.meow.music.ui.components.SectionHeader
 import com.meow.music.ui.components.SongRow
 import com.meow.music.ui.components.TopScrollEdge
 import com.meow.music.ui.components.playable
-import com.meow.music.ui.components.quietFill
 import com.meow.music.ui.components.rememberPlayMenu
+import com.meow.music.ui.rememberLoad
 import com.meow.music.ui.screens.listenTotal
 import com.meow.music.ui.screens.replayGradient
 import com.meow.music.ui.screens.toggleListenUnit
@@ -252,8 +251,9 @@ private fun HomeTopBar() {
             Text(headline, style = com.meow.music.ui.components.pageTitleStyle(), maxLines = 2)
         }
         if (settings.homeCustomizeTopButton) {
-        com.meow.music.ui.components.RoundAction(Icons.Rounded.Dashboard, "Customize home") { nav.go(Routes.CATALOGUE) }
-        Spacer(Modifier.width(8.dp))
+            com.meow.music.ui.components.RoundAction(Icons.Rounded.Dashboard, "Customize home") { nav.go(Routes.CATALOGUE) }
+            Spacer(Modifier.width(8.dp))
+        }
         Box(
             Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer).clickable { nav.go(Routes.SETTINGS) },
             contentAlignment = Alignment.Center,

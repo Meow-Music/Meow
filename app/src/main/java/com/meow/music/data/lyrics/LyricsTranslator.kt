@@ -24,6 +24,34 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
+fun languageNameOf(code: String): String {
+    return when (code.trim().lowercase()) {
+        "ne" -> "Nepali"
+        "hi" -> "Hindi"
+        "en" -> "English"
+        "es" -> "Spanish"
+        "pt" -> "Portuguese"
+        "fr" -> "French"
+        "de" -> "German"
+        "it" -> "Italian"
+        "nl" -> "Dutch"
+        "pl" -> "Polish"
+        "tr" -> "Turkish"
+        "ru" -> "Russian"
+        "uk" -> "Ukrainian"
+        "ar" -> "Arabic"
+        "id" -> "Indonesian"
+        "vi" -> "Vietnamese"
+        "tl" -> "Filipino"
+        "ja" -> "Japanese"
+        "ko" -> "Korean"
+        "zh-cn" -> "Chinese (Simplified)"
+        "zh-tw" -> "Chinese (Traditional)"
+        "" -> "English"
+        else -> java.util.Locale(code).displayLanguage.ifBlank { code }
+    }
+}
+
 /**
  * Lyric translations, line by line, from Prism / Google Translate keyless web endpoint,
  * Google Gemini GenAI API, or Groq AI API when an API key is provided.
@@ -200,8 +228,9 @@ class LyricsTranslator(private val http: OkHttpClient) {
             rawModel.isBlank() || rawModel.contains("3.6") -> GeminiApi.DEFAULT_MODEL
             else -> rawModel
         }
+        val langName = languageNameOf(to)
         val prompt = "You are an expert song lyrics translator.\n" +
-                "Translate each line of the following song lyrics line-by-line into '$to'.\n" +
+                "Translate each line of the following song lyrics line-by-line into '$langName'.\n" +
                 "Maintain poetic tone, emotion, rhyme scheme, and exact line structure of the original song.\n" +
                 "Output ONLY a JSON array of strings corresponding line-for-line to input (${texts.size} strings). Example: [\"line 1\", \"line 2\"].\n\n" +
                 "Lyrics:\n" + texts.joinToString("\n")
@@ -252,8 +281,9 @@ class LyricsTranslator(private val http: OkHttpClient) {
 
     /** Groq AI Processor supporting Llama-3.3-70b. */
     private fun translateGroq(texts: List<String>, to: String, apiKey: String): List<String> {
+        val langName = languageNameOf(to)
         val prompt = "You are an expert song lyrics translator.\n" +
-                "Translate each line of the following song lyrics line-by-line into '$to'.\n" +
+                "Translate each line of the following song lyrics line-by-line into '$langName'.\n" +
                 "Output ONLY a JSON object with key 'translations' containing a JSON array of strings corresponding line-for-line to input (${texts.size} strings).\n" +
                 "Example format: {\"translations\": [\"line 1\", \"line 2\"]}.\n\n" +
                 "Lyrics:\n" + texts.joinToString("\n")
