@@ -20,9 +20,16 @@ data class Song(
     val explicit: Boolean = false,
     /** A live stream (e.g. a "Listen together" station): played from its HLS manifest, with no end or cache. */
     val isLive: Boolean = false,
+    val isEpisode: Boolean = false,
+    val podcastId: String? = null,
 ) {
     val artistText: String get() = artists.joinToString(", ") { it.name }.ifBlank { "Unknown artist" }
     val primaryArtist: String get() = artists.firstOrNull()?.name ?: ""
+    val isLocal: Boolean get() = id.startsWith(LOCAL_PREFIX)
+
+    companion object {
+        const val LOCAL_PREFIX = "local:"
+    }
 }
 
 sealed interface BrowseItem {
@@ -228,4 +235,43 @@ fun parseDuration(text: String?): Int {
     if (parts.isEmpty()) return 0
     return parts.fold(0) { acc, p -> acc * 60 + p }
 }
+
+fun songCount(n: Int): String = if (n == 1) "1 song" else "$n songs"
+
+/** A podcast show. [id] is its browse id ("MPSP" + its playlist id); [subtitle] is the host. */
+data class PodcastItem(
+    override val id: String,
+    override val title: String,
+    override val subtitle: String,
+    override val thumbnail: String?,
+) : BrowseItem {
+    /** The show's episodes as a YouTube playlist (what "Save to library" works on). */
+    val playlistId: String get() = id.removePrefix("MPSP")
+}
+
+/** One episode on a show's page, with what the list shows beside it. */
+data class Episode(
+    val song: Song,
+    /** "Oct 2", "1d ago". */
+    val date: String?,
+    val description: String?,
+    /** How much of it the account has heard on YouTube (0..1), when signed in. */
+    val progress: Float = 0f,
+    val played: Boolean = false,
+)
+
+data class PodcastPage(
+    val id: String,
+    val title: String,
+    val author: ArtistRef?,
+    val description: String?,
+    val thumbnail: String?,
+    val episodes: List<Episode>,
+    val continuation: String?,
+    /** In the account's library; null when signed out. */
+    val savedToLibrary: Boolean?,
+) {
+    val playlistId: String get() = id.removePrefix("MPSP")
+}
+
 

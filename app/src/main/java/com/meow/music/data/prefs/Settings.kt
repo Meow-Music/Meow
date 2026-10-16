@@ -96,6 +96,8 @@ enum class TransportStyle(val label: String) { GLYPHS("Classic"), BUTTON("Play b
 enum class ScrubberStyle(val label: String) { HAIRLINE("Hairline"), BOLD("Bold"), THUMB("Thumb") }
 enum class LyricsAlign(val label: String) { START("Left"), CENTER("Centre") }
 enum class LibraryView(val label: String) { GRID("Grid"), LIST("List") }
+enum class ImmersiveLyrics(val label: String) { HIGH("High"), MIDDLE("Middle"), LOW("Low"), FULL("Full screen") }
+enum class ImmersiveArt(val label: String, val zoom: Float) { FILL("Fill the screen", 1f), ZOOMED("Zoomed out", 0.4f), WHOLE("Whole cover", 0f) }
 
 @Serializable
 data class HomeSectionConfig(
@@ -194,6 +196,9 @@ data class AppSettings(
     /** "Playing from …" above the artwork in the player. */
     val showPlayingFrom: Boolean = true,
     val lyricsBlur: Boolean = true,
+    val immersivePlayer: Boolean = false,
+    val immersiveLyrics: ImmersiveLyrics = ImmersiveLyrics.LOW,
+    val immersiveArt: ImmersiveArt = ImmersiveArt.FILL,
     /** Each screen's background (screen name -> "STYLE" or "PHOTO|path"); missing means the default. */
     val backdrops: Map<String, String> = emptyMap(),
     /** How much the theme colour washes over custom backgrounds (0 = none). */
@@ -209,6 +214,9 @@ data class AppSettings(
     val lyricsTranslate: Boolean = true,
     /** Language code to translate lyrics into; blank means the phone's language. */
     val lyricsTranslateTo: String = "",
+    val geminiApiKey: String = "",
+    val geminiModel: String = com.meow.music.data.lyrics.GeminiApi.DEFAULT_MODEL,
+    val groqApiKey: String = "",
     val lyricsScale: Float = 1f,
     /** Lyrics on Android Auto's player (the car's Lyrics button flips this too). */
     val carLyrics: Boolean = true,
@@ -228,6 +236,11 @@ data class AppSettings(
     val losslessLocal: Boolean = false,
     val normalize: Boolean = true,
     val skipSilence: Boolean = true,
+    val mix: Boolean = false,
+    val mixSeconds: Int = 6,
+    val mixAuto: Boolean = true,
+    val mixBeatMatch: Boolean = false,
+    val contentCountry: String = "",
     val videoMaxHeight: Int = 1080,
     // Storage & downloads
     val cacheSizeMb: Int = 4096,
@@ -300,6 +313,8 @@ data class AppSettings(
 ) {
     val isLoggedIn: Boolean get() = cookie.contains("SAPISID")
 
+    val mixMs: Long? get() = if (mix) mixSeconds * 1000L else null
+
     val displayName: String
         get() = customName.trim().ifBlank {
             accountName.takeIf { it.isNotBlank() && !it.equals("YouTube Music", ignoreCase = true) } ?: "Master"
@@ -340,8 +355,12 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val lyricsOrder = stringPreferencesKey("lyrics_order")
 
         val lyricsTranslate = booleanPreferencesKey("lyrics_translate")
-
         val lyricsTranslateTo = stringPreferencesKey("lyrics_translate_to")
+        val geminiApiKey = stringPreferencesKey("gemini_api_key")
+        val geminiModel = stringPreferencesKey("gemini_model")
+        val groqApiKey = stringPreferencesKey("groq_api_key")
+        val immersiveLyrics = stringPreferencesKey("immersive_lyrics")
+        val immersiveArt = stringPreferencesKey("immersive_art")
 
         val preferSynced = booleanPreferencesKey("prefer_synced")
         val skipCensored = booleanPreferencesKey("skip_censored")
@@ -358,6 +377,12 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val losslessLocal = booleanPreferencesKey("lossless_local")
         val normalize = booleanPreferencesKey("normalize")
         val skipSilence = booleanPreferencesKey("skip_silence")
+        val immersivePlayer = booleanPreferencesKey("immersive_player")
+        val mix = booleanPreferencesKey("mix")
+        val mixSeconds = intPreferencesKey("mix_seconds")
+        val mixAuto = booleanPreferencesKey("mix_auto")
+        val mixBeatMatch = booleanPreferencesKey("mix_beat_match")
+        val contentCountry = stringPreferencesKey("content_country")
         val videoMaxHeight = intPreferencesKey("video_max_height")
         val cacheSizeMb = intPreferencesKey("cache_size_mb")
         val downloadWifiOnly = booleanPreferencesKey("download_wifi_only")
@@ -447,13 +472,18 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             spatial = p[K.spatial] ?: d.spatial,
             spatialAmount = p[K.spatialAmount] ?: d.spatialAmount,
             lyricsBlur = p[K.lyricsBlur] ?: d.lyricsBlur,
+            immersivePlayer = p[K.immersivePlayer] ?: d.immersivePlayer,
+            immersiveLyrics = p.enum(K.immersiveLyrics, d.immersiveLyrics),
+            immersiveArt = p.enum(K.immersiveArt, d.immersiveArt),
             backdrops = p[K.backdrops]?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() } ?: d.backdrops,
             backdropDim = p[K.backdropDim] ?: d.backdropDim,
             backdropMotion = p[K.backdropMotion] ?: d.backdropMotion,
             lyricsOnPlayer = p[K.lyricsOnPlayer] ?: d.lyricsOnPlayer,
             lyricsTranslate = p[K.lyricsTranslate] ?: d.lyricsTranslate,
-
             lyricsTranslateTo = p[K.lyricsTranslateTo] ?: d.lyricsTranslateTo,
+            geminiApiKey = p[K.geminiApiKey] ?: d.geminiApiKey,
+            geminiModel = p[K.geminiModel]?.let { m -> if (m.isBlank() || m == "gemini-3.6-flash" || m == "gemini-2.5-flash") com.meow.music.data.lyrics.GeminiApi.DEFAULT_MODEL else m } ?: d.geminiModel,
+            groqApiKey = p[K.groqApiKey] ?: d.groqApiKey,
             lyricsOrder = p[K.lyricsOrder]?.split(",")?.mapNotNull { n ->
                 LyricsSource.entries.firstOrNull { it.name == n }
             }?.let { list ->
@@ -477,6 +507,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             losslessLocal = p[K.losslessLocal] ?: d.losslessLocal,
             normalize = p[K.normalize] ?: d.normalize,
             skipSilence = p[K.skipSilence] ?: d.skipSilence,
+            mix = p[K.mix] ?: d.mix,
+            mixSeconds = p[K.mixSeconds] ?: d.mixSeconds,
+            mixAuto = p[K.mixAuto] ?: d.mixAuto,
+            mixBeatMatch = p[K.mixBeatMatch] ?: d.mixBeatMatch,
+            contentCountry = p[K.contentCountry] ?: d.contentCountry,
             videoMaxHeight = p[K.videoMaxHeight] ?: d.videoMaxHeight,
             cacheSizeMb = p[K.cacheSizeMb] ?: d.cacheSizeMb,
             downloadWifiOnly = p[K.downloadWifiOnly] ?: d.downloadWifiOnly,
@@ -666,6 +701,18 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setLyricsTranslate(v: Boolean) = edit { it[K.lyricsTranslate] = v }
 
     fun setLyricsTranslateTo(v: String) = edit { it[K.lyricsTranslateTo] = v }
+    fun setGeminiApiKey(v: String) = edit { it[K.geminiApiKey] = v }
+    fun setGeminiModel(v: String) = edit { it[K.geminiModel] = v }
+    fun setGroqApiKey(v: String) = edit { it[K.groqApiKey] = v }
+
+    fun setImmersiveLyrics(v: ImmersiveLyrics) = edit { it[K.immersiveLyrics] = v.name }
+    fun setImmersiveArt(v: ImmersiveArt) = edit { it[K.immersiveArt] = v.name }
+    fun setImmersivePlayer(v: Boolean) = edit { it[K.immersivePlayer] = v }
+    fun setMix(v: Boolean) = edit { it[K.mix] = v }
+    fun setMixSeconds(v: Int) = edit { it[K.mixSeconds] = v }
+    fun setMixAuto(v: Boolean) = edit { it[K.mixAuto] = v }
+    fun setMixBeatMatch(v: Boolean) = edit { it[K.mixBeatMatch] = v }
+    fun setContentCountry(v: String) = edit { it[K.contentCountry] = v }
 
     fun setShowLiveRoomNavBadge(v: Boolean) = edit { it[K.showLiveRoomNavBadge] = v }
 

@@ -199,6 +199,9 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
     override fun onDestroy() {
         flushPlayTime()
         saveQueue()
+        player.currentMediaItem?.toSong()?.let { song ->
+            com.meow.music.widget.Widgets.update(this, song, false, song.id in c.library.likedIds.value, player.currentPosition, player.duration.takeIf { it > 0 })
+        }
         c.player.detach()
         carLyrics.stop()
         effects.release()
@@ -241,6 +244,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
         updateButtons()
         carLyrics.refresh()
         scheduleSave()
+        pushWidgets()
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -251,6 +255,18 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
             playStartedAt = 0
             scheduleSave()
         }
+        pushWidgets()
+    }
+
+    /** Home screen widgets follow what's playing (nothing happens when none is placed). */
+    private fun pushWidgets() {
+        if (!::player.isInitialized) return
+        val song = player.currentMediaItem?.toSong()
+        com.meow.music.widget.Widgets.update(
+            this, song, player.playWhenReady && player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE,
+            song != null && song.id in c.library.likedIds.value,
+            player.currentPosition, player.duration.takeIf { it > 0 },
+        )
     }
 
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = updateButtons()
@@ -335,6 +351,22 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
             }
             if (ex != null && c.settings.current.isLoggedIn) {
                 withContext(Dispatchers.IO) { runCatching { c.ytm.registerPlayback(ex) } }
+            }
+            if (c.settings.current.lyricsTranslate) {
+                runCatching {
+                    val lyrics = c.lyrics.auto(song)
+                    if (lyrics != null && lyrics.lines.isNotEmpty()) {
+                        val target = c.settings.current.lyricsTranslateTo.ifBlank { com.meow.music.ui.player.defaultTranslateTarget() }
+                        val texts = lyrics.lines.map { l -> if (l.isGap || (l.text.startsWith("[") && l.text.endsWith("]"))) "" else l.text }
+                        c.translator.translate(
+                            texts,
+                            to = target,
+                            geminiApiKey = c.settings.current.geminiApiKey,
+                            geminiModel = c.settings.current.geminiModel,
+                            groqApiKey = c.settings.current.groqApiKey,
+                        )
+                    }
+                }
             }
         }
     }

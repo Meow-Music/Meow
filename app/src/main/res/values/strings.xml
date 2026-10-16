@@ -5,5 +5,25 @@
     <string name="playback">Playback</string>
     <!-- In other apps' share sheets, for YouTube and YouTube Music links. -->
     <string name="open_in_meow">Play in Meow</string>
+
+    <!-- Widgets -->
+    <string name="widget_prism_name">Meow</string>
+    <string name="widget_prism_desc">Now playing on frosted glass made from the cover</string>
+    <string name="widget_spotify_name">Meow · Spotify style</string>
+    <string name="widget_spotify_desc">A slim dark bar with a green play button</string>
+    <string name="widget_apple_name">Meow · Apple Music style</string>
+    <string name="widget_apple_desc">A big cover on a card in the cover\'s colour</string>
+    <string name="widget_ytmusic_name">Meow · YouTube Music style</string>
+    <string name="widget_ytmusic_desc">Dark, with thumbs up and a red progress line</string>
+    <string name="widget_prism_label">MEOW</string>
+    <string name="widget_now_playing">Now playing</string>
+    <string name="widget_nothing">Nothing playing</string>
+    <string name="widget_tap_to_play">Tap play to pick up where you left off</string>
+    <string name="widget_open">Open Meow</string>
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pause</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_previous">Previous</string>
+    <string name="widget_like">Like</string>
 </resources>
 

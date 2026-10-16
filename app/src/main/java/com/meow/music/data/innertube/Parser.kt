@@ -5,8 +5,10 @@ import com.meow.music.data.model.AlbumRef
 import com.meow.music.data.model.ArtistItem
 import com.meow.music.data.model.ArtistRef
 import com.meow.music.data.model.BrowseItem
+import com.meow.music.data.model.Episode
 import com.meow.music.data.model.MoodItem
 import com.meow.music.data.model.PlaylistItem
+import com.meow.music.data.model.PodcastItem
 import com.meow.music.data.model.Shelf
 import com.meow.music.data.model.Song
 import com.meow.music.data.model.SongItem
@@ -22,6 +24,9 @@ object Parser {
     private const val PLAYLIST = "MUSIC_PAGE_TYPE_PLAYLIST"
     /** Artists in the signed-in library: browse id "MPLA" + the channel id. */
     private const val LIBRARY_ARTIST = "MUSIC_PAGE_TYPE_LIBRARY_ARTIST"
+    /** A podcast show: browse id "MPSP" + its playlist id. */
+    private const val PODCAST = "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE"
+    private const val EPISODE_VIDEO = "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
     private val typeLabels = setOf(
         "Song", "Video", "Album", "Single", "EP", "Artist", "Playlist", "Episode", "Podcast", "Profile", "Station",
     )
@@ -120,6 +125,7 @@ object Parser {
             ARTIST, CHANNEL -> ArtistItem(browseId, title, subtitle, thumb)
             LIBRARY_ARTIST -> ArtistItem(browseId.removePrefix("MPLA"), title, subtitle, thumb)
             PLAYLIST -> PlaylistItem(browseId.removePrefix("VL"), title, subtitle, thumb)
+            PODCAST -> PodcastItem(browseId, title, subtitle, thumb)
             else -> null
         }
     }
@@ -165,10 +171,41 @@ object Parser {
             )
             ARTIST, CHANNEL -> ArtistItem(browseId, title, subtitle, thumb)
             LIBRARY_ARTIST -> ArtistItem(browseId.removePrefix("MPLA"), title, subtitle, thumb)
+            PODCAST -> PodcastItem(browseId, title, subtitle, thumb)
             else -> if (browseId.startsWith("VL") || browseId.startsWith("RD") || browseId.startsWith("PL")) {
                 PlaylistItem(browseId.removePrefix("VL"), title, subtitle, thumb)
             } else null
         }
+    }
+
+    /**
+     * A podcast episode row (a show's page, "Popular episodes"): the title, the show it's from
+     * ("secondTitle", linked), "663K views • 1d ago", its length ("2 hr 54 min") and description.
+     */
+    fun episode(r: JsonObject, show: PodcastItem? = null): Episode? {
+        val watch = r.obj("onTap", "watchEndpoint")
+            ?: r.obj("overlay", "musicItemThumbnailOverlayRenderer", "content", "musicPlayButtonRenderer", "playNavigationEndpoint", "watchEndpoint")
+        val id = watch.str("videoId") ?: return null
+        val title = r.obj("title").text() ?: return null
+        val showRun = r.obj("secondTitle").runs().firstOrNull { pageType(it["navigationEndpoint"]) == PODCAST }
+        val progress = r.obj("playbackProgress", "musicPlaybackProgressRenderer")
+        val subtitle = r.obj("subtitle").runs().map { it.str("text") ?: "" }.filter { !isSeparator(it) }
+        return Episode(
+            song = Song(
+                id = id,
+                title = title,
+                artists = listOfNotNull((showRun?.str("text") ?: show?.title)?.let { ArtistRef(it) }),
+                durationSec = parseDuration(progress.obj("durationText").runs().lastOrNull()?.str("text")),
+                thumbnail = r.obj("thumbnail").bestThumbnail() ?: show?.thumbnail,
+                isEpisode = true,
+                podcastId = showRun?.str("navigationEndpoint", "browseEndpoint", "browseId") ?: show?.id,
+            ),
+            // The date, without the view count.
+            date = subtitle.lastOrNull { !it.contains("view", ignoreCase = true) },
+            description = r.obj("description").runs().joinToString("") { it.str("text") ?: "" }.takeIf { it.isNotBlank() },
+            progress = (progress.str("playbackProgressPercentage")?.toFloatOrNull() ?: 0f) / 100f,
+            played = progress.obj("playedText") != null && (progress.str("playbackProgressPercentage")?.toFloatOrNull() ?: 0f) >= 99f,
+        )
     }
 
     fun panelVideo(r: JsonObject): Song? {

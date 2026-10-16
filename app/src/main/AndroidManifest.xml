@@ -173,6 +173,59 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </service>
+
+        <!-- Home Screen Widgets -->
+        <receiver
+            android:name=".widget.PrismWidget"
+            android:exported="true"
+            android:label="@string/widget_prism_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_prism_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.SpotifyStyleWidget"
+            android:exported="true"
+            android:label="@string/widget_spotify_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_spotify_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.AppleStyleWidget"
+            android:exported="true"
+            android:label="@string/widget_apple_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_apple_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.YtMusicStyleWidget"
+            android:exported="true"
+            android:label="@string/widget_ytmusic_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_ytmusic_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.WidgetActionReceiver"
+            android:exported="false" />
     </application>
 </manifest>
 

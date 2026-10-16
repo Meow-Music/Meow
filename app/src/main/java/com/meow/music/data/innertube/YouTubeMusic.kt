@@ -8,6 +8,9 @@ import com.meow.music.data.model.CollectionPage
 import com.meow.music.data.model.HomeFeed
 import com.meow.music.data.model.NextResult
 import com.meow.music.data.model.PlayerExtras
+import com.meow.music.data.model.PodcastItem
+import com.meow.music.data.model.PodcastPage
+import com.meow.music.data.model.Episode
 import com.meow.music.data.model.SearchResult
 import com.meow.music.data.model.Shelf
 import com.meow.music.data.model.Song
@@ -618,6 +621,52 @@ class YouTubeMusic(private val api: InnerTube) {
             putJsonObject("target") { put("playlistId", playlistId.removePrefix("VL")) }
         })
     }
+
+    // ---------------------------------------------------------------- Podcasts
+
+    /** YouTube Music's Podcasts page: popular shows and episodes, then shows by category. */
+    suspend fun podcastsHome(): List<Shelf> = runCatching { Parser.shelves(browse("FEmusic_non_music_audio")) }.getOrDefault(emptyList())
+
+    /** Shows saved to the account's library. */
+    suspend fun libraryPodcasts(): List<com.meow.music.data.model.PodcastItem> =
+        runCatching { libraryItems("FEmusic_library_non_music_audio_list", maxPages = 8).filterIsInstance<com.meow.music.data.model.PodcastItem>() }.getOrDefault(emptyList())
+
+    /** The account's "Episodes for later" (YouTube's "SE" list), newest saved first. */
+    suspend fun savedEpisodes(): List<Song> = runCatching { playlist("SE").songs.filter { it.isEpisode } }.getOrDefault(emptyList())
+
+    /** A show's page: its header and the first episodes (newest first); more come from [podcastEpisodes]. */
+    suspend fun podcast(browseId: String): PodcastPage {
+        val id = if (browseId.startsWith("MPSP")) browseId else "MPSP$browseId"
+        val res = browse(id)
+        val header = res.findFirst("musicResponsiveHeaderRenderer")
+        val title = header.obj("title").text() ?: "Podcast"
+        val authorRun = header.obj("straplineTextOne").runs().firstOrNull()
+        val thumb = header.obj("thumbnail").bestThumbnail()
+        val show = PodcastItem(id, title, authorRun.str("text") ?: "", thumb)
+        val shelf = res.findFirst("musicShelfRenderer")
+        return PodcastPage(
+            id = id,
+            title = title,
+            author = authorRun?.let {
+                com.meow.music.data.model.ArtistRef(it.str("text") ?: "", it.str("navigationEndpoint", "browseEndpoint", "browseId"))
+            },
+            description = header.obj("description").findFirst("description").text(),
+            thumbnail = thumb,
+            episodes = episodesIn(shelf, show),
+            continuation = Parser.continuation(shelf),
+            savedToLibrary = libraryToggle(header),
+        )
+    }
+
+    /** One more page of a show's episodes. */
+    suspend fun podcastEpisodes(token: String, show: PodcastItem): Pair<List<Episode>, String?> {
+        val res = continueBrowse(token)
+        val node = res.obj("continuationContents") ?: res
+        return episodesIn(node, show) to (Parser.continuation(node) ?: res.findAll("continuationItemRenderer").firstOrNull()?.findFirst("continuationCommand").str("token"))
+    }
+
+    private fun episodesIn(node: JsonElement?, show: PodcastItem): List<Episode> =
+        node.findAll("musicMultiRowListItemRenderer").mapNotNull { Parser.episode(r = it, show = show) }
 }
 
 

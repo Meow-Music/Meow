@@ -118,6 +118,9 @@ class AppContainer(val app: Application) {
     /** Liked songs mirrored into a real YouTube Music playlist, when the listener turns that on. */
     val likedPlaylist = com.meow.music.data.LikedPlaylist(this)
     val localLossless = com.meow.music.data.local.LocalLossless(app)
+    val episodes = com.meow.music.data.EpisodeProgress(app)
+    val localMusic by lazy { com.meow.music.data.local.LocalMusic(app, scope) }
+    val mixTempo by lazy { com.meow.music.playback.MixTempo(app, http, streams) { id, _ -> localLossless.linked[id] ?: localMusic.uriFor(id) } }
     val losslessSync by lazy { com.meow.music.download.LosslessSync(app, this) }
     // Started only after localLossless exists: a launch from an earlier init block can run on a
     // background thread before this property is assigned.

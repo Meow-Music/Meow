@@ -254,6 +254,22 @@ fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, modifier:
     }
 }
 
+/** A pill-shaped choice: solid when picked, quiet otherwise ([idle], or the theme's container colour). */
+@Composable
+fun PrismChip(selected: Boolean, onClick: () -> Unit, label: String, modifier: Modifier = Modifier, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, idle: Color = Color.Unspecified) {
+    val scheme = MaterialTheme.colorScheme
+    val ui = LocalUi.current
+    val bg by androidx.compose.animation.animateColorAsState(if (selected) scheme.onSurface else if (idle != Color.Unspecified) idle else quietFill(), androidx.compose.animation.core.tween(180), label = "chipBg")
+    val fg by androidx.compose.animation.animateColorAsState(if (selected) scheme.surface else scheme.onSurface, androidx.compose.animation.core.tween(180), label = "chipFg")
+    Row(
+        modifier.height(36.dp).clip(ui.shape(18.dp)).background(bg).clickable(onClick = onClick).padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) { Icon(icon, null, Modifier.size(18.dp), tint = fg); Spacer(Modifier.width(6.dp)) }
+        Text(label, style = MaterialTheme.typography.labelLarge, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 /** Choices that wrap onto more lines when there are many. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

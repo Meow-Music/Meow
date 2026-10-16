@@ -82,7 +82,7 @@ class InnerTube(
             put("clientName", "WEB_REMIX")
             put("clientVersion", clientVersion)
             put("hl", locale.language.ifBlank { "en" })
-            put("gl", locale.country.ifBlank { "US" })
+            put("gl", s.contentCountry.uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) } ?: locale.country.uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) } ?: "US")
             put("platform", "DESKTOP")
             put("userAgent", USER_AGENT)
             if (visitorData.isNotBlank()) put("visitorData", visitorData)

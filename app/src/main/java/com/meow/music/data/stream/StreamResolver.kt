@@ -321,7 +321,12 @@ class StreamResolver(
     private val needsAccount = ConcurrentHashMap.newKeySet<String>()
 
     init {
-        NewPipe.init(NewPipeDownloader(http), Localization(Locale.getDefault().language.ifBlank { "en" }, Locale.getDefault().country.ifBlank { "US" }))
+        val country = settings.current.contentCountry.uppercase().takeIf { it.matches(Regex("[A-Z]{2}")) } ?: Locale.getDefault().country.ifBlank { "US" }
+        NewPipe.init(
+            NewPipeDownloader(http),
+            Localization(Locale.getDefault().language.ifBlank { "en" }, Locale.getDefault().country.ifBlank { "US" }),
+            org.schabi.newpipe.extractor.localization.ContentCountry(country),
+        )
     }
 
     private fun isMetered(): Boolean {

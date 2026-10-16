@@ -113,7 +113,11 @@ fun PlayerOptionsSheet(
         ActionItem(Icons.Rounded.Refresh, "Download lyrics again") { onRedownloadLyrics(); toast("Downloading lyrics again") },
     )
     val cover = com.meow.music.data.canvas.CanvasRepository.albumKey(song)
+    val immersive = c.settings.flow.collectAsState().value.immersivePlayer
     val player = listOfNotNull(
+        ActionItem(com.meow.music.ui.theme.PrismIcons.Fullscreen, "Immersive mode", value = if (immersive) "On" else null, active = immersive, keepOpen = true) {
+            c.settings.setImmersivePlayer(!immersive)
+        },
         com.meow.music.ui.components.videoDownloadAction(song, videos[song.id]),
         ActionItem(Icons.Rounded.Groups, "Join Room", value = if (inSession) "Active" else null, active = inSession) { onCollapse(); nav.go(Routes.TOGETHER) },
         ActionItem(Icons.Rounded.DataUsage, "Stats for nerds", active = statsShown, onClick = onToggleStats),

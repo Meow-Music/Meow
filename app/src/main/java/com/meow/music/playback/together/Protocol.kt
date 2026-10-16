@@ -80,7 +80,7 @@ private val imageHosts = listOf(".googleusercontent.com", ".ggpht.com", ".ytimg.
  * pictures only from YouTube's own image servers, and text of a sensible length.
  */
 fun Song.fromPeer(): Song? {
-    if (!videoId.matches(id)) return null
+    if (id.isBlank() || id.contains("..") || id.contains('/') || id.contains('\\')) return null
     val thumb = thumbnail?.takeIf { t ->
         val u = runCatching { java.net.URI(t) }.getOrNull()
         u?.scheme == "https" && u.host?.lowercase()?.let { h -> imageHosts.any { h.endsWith(it) } } == true

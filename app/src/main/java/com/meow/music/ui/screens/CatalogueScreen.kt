@@ -305,7 +305,7 @@ private fun GreetingField() {
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface, fontWeight = FontWeight.Medium),
             cursorBrush = SolidColor(scheme.primary),
             decorationBox = { inner ->
-                if (text.isEmpty()) Text("Good morning / afternoon / evening", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
+                if (text.isEmpty()) Text("Good morning / afternoon / evening / night", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant.copy(alpha = 0.6f))
                 inner()
             },
         )

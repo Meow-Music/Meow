@@ -415,6 +415,12 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         composable(Routes.MOODS) { ScreenBackdrop(BackdropScreen.SEARCH) { com.meow.music.ui.screens.MoodsScreen(bottomPadding) } }
                         composable(Routes.IMPORT) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.ImportScreen(bottomPadding) } }
                         composable(Routes.TOGETHER) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.TogetherScreen(bottomPadding) } }
+                        composable(Routes.PODCASTS) { ScreenBackdrop(BackdropScreen.HOME) { com.meow.music.ui.screens.PodcastsScreen(bottomPadding) } }
+                        composable(Routes.LOCAL_MUSIC) { ScreenBackdrop(BackdropScreen.LIBRARY) { com.meow.music.ui.screens.LocalMusicScreen(bottomPadding) } }
+                        composable(Routes.LICENSES) { ScreenBackdrop(BackdropScreen.SETTINGS) { com.meow.music.ui.screens.LicensesPage() } }
+                        composable("podcast/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
+                            ScreenBackdrop(BackdropScreen.HOME) { com.meow.music.ui.screens.PodcastScreen(it.arguments?.getString("id")!!, bottomPadding) }
+                        }
                         composable(Routes.DOWNLOADS) { CollectionScreen(CollectionType.DOWNLOADS, "downloads", null, bottomPadding) }
                         composable(Routes.LOGIN) {
                             LoginScreen(

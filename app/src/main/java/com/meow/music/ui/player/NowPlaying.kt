@@ -305,6 +305,23 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
     // Only ever the song's album (tapping it opens the album); nothing for songs without one.
     val originAlbum = song.album?.takeIf { it.id != null && it.title.isNotBlank() }
 
+    if (settings.immersivePlayer && !videoMode) {
+        ImmersivePlayer(
+            song = song,
+            canvas = canvas,
+            canvasSaved = canvasSaved,
+            isPlaying = isPlaying,
+            lyricsState = lyricsState,
+            covered = showActions || showTiming || showProviders,
+            onExit = { c.settings.setImmersivePlayer(false) },
+            onLyricsTiming = { showTiming = true },
+            onLyricsSource = { showProviders = true },
+            onSongOptions = { showActions = true },
+            onCollapse = onCollapse,
+        )
+        return
+    }
+
     Box(
         Modifier
             .fillMaxSize()

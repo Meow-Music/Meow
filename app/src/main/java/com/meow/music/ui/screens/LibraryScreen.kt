@@ -234,6 +234,8 @@ fun LibraryScreen(bottomPadding: Dp) {
                     LibTab.PLAYLISTS -> {
                         item { ShortcutTile("Liked songs", "${liked.size} songs", Icons.Rounded.Favorite, asList, art = c.covers.custom("liked"), onLongClick = { menu(com.meow.music.ui.components.Playable.Liked) }) { nav.go(Routes.liked()) } }
                         item { ShortcutTile("Downloads", "${dls.values.count { it.state == androidx.media3.exoplayer.offline.Download.STATE_COMPLETED }} songs", Icons.Rounded.DownloadDone, asList, onLongClick = { menu(com.meow.music.ui.components.Playable.Downloads) }) { nav.go(Routes.DOWNLOADS) } }
+                        item { ShortcutTile("Local files", "Music files on this phone", com.meow.music.ui.theme.PrismIcons.Phone, asList) { nav.go(Routes.LOCAL_MUSIC) } }
+                        item { ShortcutTile("Podcasts", "Shows & episodes", com.meow.music.ui.theme.PrismIcons.Podcasts, asList) { nav.go(Routes.PODCASTS) } }
                         item { ShortcutTile("Replay", "Your listening recap", Icons.Rounded.History, asList) { nav.go(Routes.REPLAY) } }
                         item { ShortcutTile("Join Room", "Instant listening with friends on same Wi-Fi", Icons.Rounded.Groups, asList) { nav.go(Routes.TOGETHER) } }
                         if (settings.isLoggedIn) item { ShortcutTile("New playlist", "Make one on YouTube Music", Icons.Rounded.Add, asList) { creating = true } }

@@ -538,14 +538,18 @@ fun LyricsPanel(
 
     // A translation under each line, when it's turned on and the song isn't already in that language.
     val translateTo = settings.lyricsTranslateTo.ifBlank { defaultTranslateTarget() }
-    var translation by remember(lines, settings.lyricsTranslate, translateTo) { mutableStateOf<com.meow.music.data.lyrics.LyricsTranslator.Translation?>(null) }
-    LaunchedEffect(lines, settings.lyricsTranslate, translateTo) {
+    val geminiKey = settings.geminiApiKey
+    val groqKey = settings.groqApiKey
+    val model = settings.geminiModel
+    var translation by remember(lines, settings.lyricsTranslate, translateTo, geminiKey, model, groqKey) { mutableStateOf<com.meow.music.data.lyrics.LyricsTranslator.Translation?>(null) }
+    LaunchedEffect(lines, settings.lyricsTranslate, translateTo, geminiKey, model, groqKey) {
         if (!settings.lyricsTranslate || lines.isEmpty()) return@LaunchedEffect
         val texts = lines.map { l -> if (l.isGap || (l.text.startsWith("[") && l.text.endsWith("]"))) "" else l.text }
-        translation = runCatching { c.translator.translate(texts, translateTo) }
-            .onFailure { android.util.Log.w("MeowLyrics", "Couldn't translate the lyrics: $it") }.getOrNull()
+        translation = runCatching { c.translator.translate(texts, to = translateTo, geminiApiKey = geminiKey, geminiModel = model, groqApiKey = groqKey) }
+            .onSuccess { android.util.Log.d("MeowLyrics", "Translated ${lines.size} lines to $translateTo") }
+            .onFailure { android.util.Log.w("MeowLyrics", "Couldn't translate lyrics: $it") }.getOrNull()
     }
-    val translations = translation?.takeUnless { it.sameLanguage }?.translations
+    val translations = translation?.translations
 
     if (lines.isEmpty()) {
         Box(modifier.pointerInput(Unit) { detectTapGestures { onRevealControls() } }, contentAlignment = Alignment.Center) {
