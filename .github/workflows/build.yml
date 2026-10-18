@@ -53,7 +53,7 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding release keystore..."
             echo "$KEYSTORE_BASE64" | base64 -d > REXX.JKS
-            cat <<EOF > key.properties
+            cat <<EOF > keystore.properties
           storeFile=REXX.JKS
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
