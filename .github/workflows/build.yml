@@ -59,7 +59,7 @@ jobs:
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
           EOF
-            echo "key.properties configured for release signing."
+            echo "keystore.properties configured for release signing."
           else
             echo "No RELEASE_KEYSTORE_BASE64 secret found. Falling back to debug key signing."
           fi
