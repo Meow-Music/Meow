@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Meow</string>
+    <string name="downloads">Downloads</string>
+    <string name="playback">Playback</string>
+    <!-- In other apps' share sheets, for YouTube and YouTube Music links. -->
+    <string name="open_in_meow">Play in Meow</string>
+<!-- Home screen widgets -->
+    <string name="widget_meow_name">Meow</string>
+    <string name="widget_meow_desc">Now playing on frosted glass made from the cover</string>
+    <string name="widget_spotify_name">Meow · Spotify style</string>
+    <string name="widget_spotify_desc">A slim dark bar with a green play button</string>
+    <string name="widget_apple_name">Meow · Apple Music style</string>
+    <string name="widget_apple_desc">A big cover on a card in the cover\'s colour</string>
+    <string name="widget_ytmusic_name">Meow · YouTube Music style</string>
+    <string name="widget_ytmusic_desc">Dark, with thumbs up and a red progress line</string>
+    <string name="widget_cover_name">Meow · Cover</string>
+    <string name="widget_cover_desc">The cover filling a small square, with the title and play</string>
+    <string name="widget_disc_name">Meow · Disc</string>
+    <string name="widget_disc_desc">The cover as a round disc, in a ring that fills as the song plays</string>
+    <string name="widget_strip_name">Meow · Strip</string>
+    <string name="widget_strip_desc">A slim bar in the cover\'s colour, with previous, play and next</string>
+    <string name="widget_meow_label">MEOW</string>
+    <string name="widget_now_playing">Now playing</string>
+    <string name="widget_nothing">Nothing playing</string>
+    <string name="widget_tap_to_play">Tap play to pick up where you left off</string>
+    <string name="widget_open">Open Meow</string>
+    <string name="widget_play">Play</string>
+    <string name="widget_pause">Pause</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_previous">Previous</string>
+    <string name="widget_like">Like</string>
+
+    <!-- Listen Together / Internet Room -->
+    <string name="listen_together_notification_channel_name">Listen Together</string>
+    <string name="listen_together_notification_channel_desc">Notifications for Listen Together sessions</string>
+    <string name="listen_together_join_request_notification">Join request received</string>
+    <string name="listen_together">Listen Together</string>
+    <string name="approve">Approve</string>
+    <string name="reject">Reject</string>
+    <string name="listen_together_suggestion_received">Song suggestion received</string>
+    <string name="listen_together_room_created">Room created</string>
+    <string name="listen_together_suggestion_sent">Suggestion sent</string>
+</resources>

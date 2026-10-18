@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Saving lyrics into your music files on Android 9 and older (newer ones ask per change instead). -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Installing Meow's own updates from GitHub (the listener confirms each in Android's installer). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <!-- Only to open Android's "uninstall Meow?" prompt when moving to the newly signed Meow. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
+    <queries>
+        <intent>
+            <action android:name="android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL" />
+        </intent>
+        <!-- Android Auto's "is the phone projecting to a car right now" provider. -->
+        <provider android:authorities="androidx.car.app.connection" />
+        <!-- The Pixel Watch / Wear OS companion relays the watch's media controls: the session has to be able to
+             see it to accept them as a known controller. -->
+        <package android:name="com.google.android.apps.wear.companion" />
+        <package android:name="com.google.android.wearable.app" />
+    </queries>
+
+    <application
+        android:name=".MeowApp"
+        android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="${appLabel}"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Meow"
+        tools:targetApi="36">
+
+        <!-- The app's one screen. Its launcher entries are the aliases below, one per app icon (#20). -->
+        <activity
+            android:name=".MeowActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="music.youtube.com" />
+            </intent-filter>
+            <!-- YouTube / YouTube Music links shared from other apps ("Play in Meow"). -->
+            <intent-filter android:label="@string/open_in_meow">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!-- App icons (Settings → Appearance / About → App Icon): exactly one launcher alias is enabled -->
+        <activity-alias android:name=".MainActivity" android:targetActivity=".MeowActivity" android:exported="true"
+            android:enabled="true" android:icon="@drawable/app_icon_meow_logo" android:roundIcon="@drawable/app_icon_meow_logo">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".MainActivityCoolLogo" android:targetActivity=".MeowActivity" android:exported="true"
+            android:enabled="false" android:icon="@drawable/app_icon_cool_logo" android:roundIcon="@drawable/app_icon_cool_logo">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".MainActivityHeadphone" android:targetActivity=".MeowActivity" android:exported="true"
+            android:enabled="false" android:icon="@drawable/app_icon_headphone" android:roundIcon="@drawable/app_icon_headphone">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".MainActivityPookie" android:targetActivity=".MeowActivity" android:exported="true"
+            android:enabled="false" android:icon="@drawable/app_icon_pookie_app" android:roundIcon="@drawable/app_icon_pookie_app">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
+        <!-- "Hey Google, play … on Meow": Assistant / Gemini only offer apps that take this as music sources. -->
+        <activity
+            android:name=".playback.VoicePlayActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Discord OAuth Redirect Callback Receiver -->
+        <activity
+            android:name=".discord.DiscordOAuthCallbackActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${discordRedirectScheme}" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Headset / Bluetooth media buttons and system playback resumption. -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Cover art for Android Auto's browse lists (content:// only there). -->
+        <provider
+            android:name=".playback.ArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+
+        <!-- Sharing Replay cards (images saved to the app's cache). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
+
+        <!-- Home screen widgets: one per look, so each shows up in the launcher's list. -->
+        <receiver
+            android:name=".widget.MeowWidget"
+            android:exported="false"
+            android:label="@string/widget_meow_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_meow_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.SpotifyStyleWidget"
+            android:exported="false"
+            android:label="@string/widget_spotify_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_spotify_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.AppleStyleWidget"
+            android:exported="false"
+            android:label="@string/widget_apple_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_apple_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.YtMusicStyleWidget"
+            android:exported="false"
+            android:label="@string/widget_ytmusic_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_ytmusic_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.CoverWidget"
+            android:exported="false"
+            android:label="@string/widget_cover_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_cover_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.DiscWidget"
+            android:exported="false"
+            android:label="@string/widget_disc_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_disc_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.StripWidget"
+            android:exported="false"
+            android:label="@string/widget_strip_name">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_strip_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.WidgetActionReceiver"
+            android:exported="false" />
+
+        <!-- Results from Android's installer while Meow updates itself. -->
+        <receiver
+            android:name=".data.UpdateInstallReceiver"
+            android:exported="false" />
+
+        <!-- Android Auto -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_notification" />
+
+        <service
+            android:name=".download.MeowDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="androidx.media3.exoplayer.downloadService.action.RESTART" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
