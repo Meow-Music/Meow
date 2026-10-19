@@ -196,6 +196,10 @@ data class AppSettings(
     /** Discord shows what's playing (Settings → Discord). Off until the listener signs in to Discord there. */
     val discordPresence: Boolean = false,
     val showDiscord: Boolean = false,
+    val discordActivityType: String = "LISTENING",
+    val discordOnlineStatus: String = "ONLINE",
+    val discordShowTimestamps: Boolean = true,
+    val discordShowButtons: Boolean = true,
     val accountName: String = "",
     val accountEmail: String = "",
     val accountAvatar: String = "",
@@ -410,6 +414,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val authUser = intPreferencesKey("auth_user")
         val discordPresence = booleanPreferencesKey("discord_presence")
         val showDiscord = booleanPreferencesKey("show_discord")
+        val discordActivityType = stringPreferencesKey("discord_activity_type")
+        val discordOnlineStatus = stringPreferencesKey("discord_online_status")
+        val discordShowTimestamps = booleanPreferencesKey("discord_show_timestamps")
+        val discordShowButtons = booleanPreferencesKey("discord_show_buttons")
         val accountName = stringPreferencesKey("account_name")
         val accountEmail = stringPreferencesKey("account_email")
         val accountAvatar = stringPreferencesKey("account_avatar")
@@ -554,6 +562,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             authUser = p[K.authUser] ?: 0,
             discordPresence = p[K.discordPresence] ?: d.discordPresence,
             showDiscord = p[K.showDiscord] ?: d.showDiscord,
+            discordActivityType = p[K.discordActivityType] ?: d.discordActivityType,
+            discordOnlineStatus = p[K.discordOnlineStatus] ?: d.discordOnlineStatus,
+            discordShowTimestamps = p[K.discordShowTimestamps] ?: d.discordShowTimestamps,
+            discordShowButtons = p[K.discordShowButtons] ?: d.discordShowButtons,
             accountName = p[K.accountName] ?: "",
             accountEmail = p[K.accountEmail] ?: "",
             accountAvatar = p[K.accountAvatar] ?: "",
@@ -735,8 +747,12 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setVisitorData(v: String) = edit { it[K.visitorData] = v }
     fun setDiscordPresence(v: Boolean) = edit { it[K.discordPresence] = v }
     fun setShowDiscord(v: Boolean) = edit { it[K.showDiscord] = v }
+    fun setDiscordActivityType(v: String) = edit { it[K.discordActivityType] = v }
+    fun setDiscordOnlineStatus(v: String) = edit { it[K.discordOnlineStatus] = v }
+    fun setDiscordShowTimestamps(v: Boolean) = edit { it[K.discordShowTimestamps] = v }
+    fun setDiscordShowButtons(v: Boolean) = edit { it[K.discordShowButtons] = v }
 
-    fun logout() = edit {
+    suspend fun logout() = editNow {
         it.remove(K.cookie); it.remove(K.dataSyncId); it.remove(K.authUser)
         it.remove(K.accountName); it.remove(K.accountEmail); it.remove(K.accountAvatar)
     }

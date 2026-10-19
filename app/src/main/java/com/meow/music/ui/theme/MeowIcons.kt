@@ -51,7 +51,8 @@ object IconStyle {
 
     fun savedPack(context: android.content.Context): IconPack {
         val p = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-        val saved = p.getString("pack", null); return if (saved == "PRISM") IconPack.MEOW else (IconPack.entries.firstOrNull { it.name == saved } ?: IconPack.MEOW)
+        val saved = p.getString("pack", null)
+        return IconPack.entries.firstOrNull { it.name == saved } ?: IconPack.MEOW
     }
 
     fun savePack(context: android.content.Context, pack: IconPack) {

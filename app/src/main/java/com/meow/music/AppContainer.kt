@@ -235,7 +235,10 @@ class AppContainer(val app: Application) {
     val discord = com.meow.music.discord.DiscordPresence(app, scope)
     init {
         scope.launch {
-            settings.flow.collect { s -> discord.setEnabled(s.discordPresence && discord.signedIn) }
+            settings.flow.collect { s -> 
+                discord.setEnabled(s.discordPresence && discord.signedIn)
+                discord.updateSettings(s)
+            }
         }
     }
 

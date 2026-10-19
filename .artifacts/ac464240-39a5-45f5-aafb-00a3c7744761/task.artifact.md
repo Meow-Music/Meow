@@ -1,0 +1,4 @@
+- [ ] Create `MeowDiscordModels.kt` for simplified Discord presence data structures
+- [ ] Create `MeowDiscordClient.kt` for clean gateway connection, heartbeat, and activity presence updates
+- [ ] Refactor `DiscordPresence.kt` to integrate with `MeowDiscordClient`
+- [ ] Verify build and test compilation

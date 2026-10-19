@@ -15,8 +15,8 @@ android {
         applicationId = "com.meow.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.2.3"
+        versionCode = 24
+        versionName = "1.2.4"
         vectorDrawables { useSupportLibrary = true }
         // The name under the launcher icon; a side-by-side build (below) is called "Meow Dev" so it can't be mistaken for Meow.
         manifestPlaceholders["appLabel"] = "@string/app_name"
@@ -25,8 +25,8 @@ android {
             rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
         }
         buildConfigField("String", "LASTFM_API_KEY", "\"${localProps.getProperty("lastfm.apiKey", "")}\"")
-        val discordAppId = localProps.getProperty("discord.applicationId", "1518210534070292541")
-        val discordAppIdLong = localProps.getProperty("discord.applicationIdLong", "1518210534070292541")
+        val discordAppId = localProps.getProperty("discord.applicationId", "1561657207735455795")
+        val discordAppIdLong = localProps.getProperty("discord.applicationIdLong", "1561657207735455795")
         val discordRedirectScheme = localProps.getProperty("discord.redirectScheme", "discord-$discordAppId")
         buildConfigField("String", "DISCORD_APPLICATION_ID", "\"$discordAppId\"")
         buildConfigField("Long", "DISCORD_APPLICATION_ID_LONG", "${discordAppIdLong}L")

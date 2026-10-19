@@ -107,16 +107,29 @@ fun LoginScreen(onDone: () -> Unit, onBack: () -> Unit, addAccount: Boolean = fa
         finishing = true
         scope.launch {
             CookieManager.getInstance().flush()
-            val (visitor, dataSync) = withTimeoutOrNull(10_000) { c.innerTube.sessionInfo(cookie) } ?: (null to null)
-            c.settings.saveAccount(cookie, visitor.orEmpty(), dataSync.orEmpty())
+            val (visitor, dataSyncFromSession) = withTimeoutOrNull(10_000) { c.innerTube.sessionInfo(cookie) } ?: (null to null)
+            val accounts = withTimeoutOrNull(10_000) { runCatching { c.ytm.accounts(cookie) }.getOrNull() } ?: emptyList()
+            val primaryAccount = accounts.firstOrNull()
+            val finalDataSync = primaryAccount?.dataSyncId ?: dataSyncFromSession.orEmpty()
+
+            c.settings.saveAccount(cookie, visitor.orEmpty(), finalDataSync)
             c.settings.setOnboarded(true)
+
+            if (primaryAccount != null) {
+                c.settings.saveAccountInfo(primaryAccount.name, primaryAccount.email, primaryAccount.avatar)
+            }
+
             // Wait until the saved cookie is what requests will actually use,
             // otherwise the first account/library calls go out signed-out.
             c.settings.flow.first { it.cookie == cookie }
-            // Name, picture and library fill in once Meow is open; no need to hold sign-in up for them.
+
+            if (primaryAccount == null) {
+                c.scope.launch {
+                    val info = withTimeoutOrNull(15_000) { runCatching { c.ytm.accountInfo() }.getOrNull() }
+                    if (info != null) c.settings.saveAccountInfo(info.name, info.email, info.avatar)
+                }
+            }
             c.scope.launch {
-                val info = withTimeoutOrNull(15_000) { runCatching { c.ytm.accountInfo() }.getOrNull() }
-                if (info != null) c.settings.saveAccountInfo(info.name, info.email, info.avatar)
                 c.library.syncInBackground()
             }
             onDone()

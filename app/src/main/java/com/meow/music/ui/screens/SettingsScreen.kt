@@ -208,11 +208,39 @@ fun SettingsScreen(bottomPadding: Dp, section: SettingsSection? = null) {
             SettingsSection.LIBRARY -> item { LibraryReplaySettings() }
             SettingsSection.LISTEN_TOGETHER -> item { ListenTogetherSettings() }
             SettingsSection.ABOUT -> item {
-                Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    DevelopersGroup()
-                    BackupGroup()
-                    Group("About") {
-                        CheckForUpdates()
+                var showDevTeam by remember { mutableStateOf(false) }
+                androidx.activity.compose.BackHandler(enabled = showDevTeam) {
+                    showDevTeam = false
+                }
+
+                if (showDevTeam) {
+                    Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showDevTeam = false }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(MeowIcons.ArrowBack, contentDescription = "Back to About", tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "← Back to About",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        DevelopmentTeamPage()
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+                        DevelopmentTeamCompactCard(onClick = { showDevTeam = true })
+                        BackupGroup()
+                        Group("About") {
+                            CheckForUpdates()
+                        }
+                        ContributorsGroup()
                     }
                 }
             }
@@ -254,19 +282,70 @@ private data class ContactLink(
     val drawableRes: Int
 )
 
+@Composable
+private fun DevelopmentTeamCompactCard(onClick: () -> Unit) {
+    Group("Development Team") {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.dev_lead_dev),
+                        contentDescription = "Rexx",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Rexx & Meow Team",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "Lead Architect & Creators · Tap to view team",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Chevron()
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun DevelopersGroup() {
+private fun DevelopmentTeamPage() {
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
-    Group("Development Team") {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            DeveloperSectionCard(
+    Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
+        Group("Lead Developer") {
+            BigBannerDeveloperCard(
                 name = "Rexx",
                 title = "Lead Architect & Core Engine Master",
+                badge = "Lead Dev",
                 bio = "Maintains 99.9% uptime powered purely by caffeine and cat memes. Converts raw Kotlin code into silky smooth audio frequencies while debugging in his sleep.",
                 imageRes = R.drawable.dev_lead_dev,
                 links = listOf(
@@ -276,30 +355,34 @@ private fun DevelopersGroup() {
                 ),
                 onOpen = { url -> runCatching { uriHandler.openUri(url) } }
             )
+        }
 
-            DeveloperSectionCard(
-                name = "Rozan",
-                title = "UI/UX Alchemist & Design Specialist",
-                bio = "Measures margins in pixels and perfection in alignment. Will re-color a button 17 times until the cat approves the precise shade of pink.",
-                imageRes = R.drawable.dev_ui_rozan,
-                imageAlignment = Alignment.TopCenter,
-                links = listOf(
-                    ContactLink("Messenger", "https://m.me/rojan.lama.9", R.drawable.ic_messenger),
-                    ContactLink("WhatsApp", "https://wa.me/971564506103", R.drawable.ic_whatsapp)
-                ),
-                onOpen = { url -> runCatching { uriHandler.openUri(url) } }
-            )
+        Group("Core Team & Alchemists") {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                DeveloperSectionCard(
+                    name = "Rozan",
+                    title = "UI/UX Alchemist & Design Specialist",
+                    bio = "Measures margins in pixels and perfection in alignment. Will re-color a button 17 times until the cat approves the precise shade of pink.",
+                    imageRes = R.drawable.dev_ui_rozan,
+                    imageAlignment = Alignment.TopCenter,
+                    links = listOf(
+                        ContactLink("Messenger", "https://m.me/rojan.lama.9", R.drawable.ic_messenger),
+                        ContactLink("WhatsApp", "https://wa.me/971564506103", R.drawable.ic_whatsapp)
+                    ),
+                    onOpen = { url -> runCatching { uriHandler.openUri(url) } }
+                )
 
-            DeveloperSectionCard(
-                name = "Mrs Dev",
-                title = "Feature Architect & Harmony Enforcer",
-                bio = "The true brain behind the operation who keeps the team focused, fixes edge-case bugs before anyone notices, and makes sure the app actually works on real phones.",
-                imageRes = R.drawable.dev_mrs_dev,
-                links = listOf(
-                    ContactLink("TikTok", "https://tiktok.com/@laxmeee11", R.drawable.ic_tiktok)
-                ),
-                onOpen = { url -> runCatching { uriHandler.openUri(url) } }
-            )
+                DeveloperSectionCard(
+                    name = "Laxmee",
+                    title = "Feature Architect & Harmony Enforcer",
+                    bio = "The true brain behind the operation who keeps the team focused, fixes edge-case bugs before anyone notices, and makes sure the app actually works on real phones.",
+                    imageRes = R.drawable.dev_mrs_dev,
+                    links = listOf(
+                        ContactLink("TikTok", "https://tiktok.com/@laxmeee11", R.drawable.ic_tiktok)
+                    ),
+                    onOpen = { url -> runCatching { uriHandler.openUri(url) } }
+                )
+            }
         }
     }
 }
@@ -415,6 +498,143 @@ private fun DeveloperSectionCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BigBannerDeveloperCard(
+    name: String,
+    title: String,
+    badge: String,
+    bio: String,
+    imageRes: Int,
+    imageAlignment: Alignment = Alignment.Center,
+    links: List<ContactLink>,
+    onOpen: (String) -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.6f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            ) {
+                Image(
+                    painter = painterResource(id = imageRes),
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    alignment = imageAlignment,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)),
+                                startY = 60f
+                            )
+                        )
+                )
+                
+                Surface(
+                    shape = RoundedCornerShape(percent = 50),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp)
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = bio,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(14.dp)
+                    )
+                }
+
+                if (links.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        links.forEach { link ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                                modifier = Modifier.clickable { onOpen(link.url) }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = link.drawableRes),
+                                        contentDescription = link.label,
+                                        tint = Color.Unspecified,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Text(
+                                        text = link.label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun countryName(code: String): String =
     java.util.Locale("", code).displayCountry.takeIf { it.isNotBlank() && it != code } ?: code
 
@@ -500,6 +720,94 @@ private fun CheckForUpdates() {
     }
 }
 
+private data class Contributor(
+    val name: String,
+    val link: String,
+    val drawableRes: Int
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ContributorsGroup() {
+    val context = LocalContext.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val contributors = remember {
+        runCatching {
+            context.assets.open("contributors/contributors.txt").use { stream ->
+                stream.readBytes().decodeToString()
+            }
+        }.getOrNull()?.lines()?.mapNotNull { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return@mapNotNull null
+            val parts = trimmed.split(Regex("\\s+"), limit = 2)
+            val name = parts.getOrNull(0)?.trim() ?: return@mapNotNull null
+            val rawLink = parts.getOrNull(1)?.trim()?.removeSurrounding("\"") ?: "https://github.com/Meow-Music/Meow"
+            val link = if (rawLink.startsWith("http://") || rawLink.startsWith("https://")) rawLink else "https://$rawLink"
+            val drawableRes = when (name.lowercase()) {
+                "zilon" -> R.drawable.zilon
+                else -> R.drawable.dev_lead_dev
+            }
+            Contributor(name, link, drawableRes)
+        }?.takeIf { it.isNotEmpty() } ?: listOf(
+            Contributor("Zilon", "https://m.me/zilontamang.tamang.3", R.drawable.zilon)
+        )
+    }
+
+    Group("Contributors") {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "Special thanks to our amazing contributors:",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                contributors.forEach { contributor ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { runCatching { uriHandler.openUri(contributor.link) } }
+                            .padding(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = contributor.drawableRes),
+                                contentDescription = contributor.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = contributor.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun Chevron() = Icon(MeowIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -515,6 +823,7 @@ private fun AccountCard() {
     // A pane of frosted glass on a frosted page, the accent's gradient otherwise.
     val frosted = com.meow.music.ui.components.LocalFrosted.current
     val ink = com.meow.music.ui.components.featureInk()
+    val scope = rememberCoroutineScope()
     var switching by remember { mutableStateOf(false) }
     if (switching) AccountSwitcher { switching = false }
     Column(Modifier.fillMaxWidth().featurePane(ui.card)) {
@@ -542,10 +851,13 @@ private fun AccountCard() {
             )
         }
         if (s.isLoggedIn) OutlinedButton(onClick = {
-            c.settings.logout()
-            // The account's library kept for offline goes with it.
-            c.library.forgetAccount()
-            CookieManager.getInstance().removeAllCookies(null)
+            scope.launch {
+                c.settings.logout()
+                // The account's library kept for offline goes with it.
+                c.library.forgetAccount()
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+            }
         }) { Icon(MeowIcons.Logout, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Sign out") }
         else Icon(MeowIcons.ChevronRight, null, tint = ink)
     }
@@ -569,30 +881,115 @@ private fun AccountCard() {
 private fun DiscordGroup() {
     val c = LocalContainer.current
     val s = LocalAppSettings.current
+    val prefs = c.settings
     val nav = LocalNavigator.current
     val state by c.discord.state.collectAsState()
     val user by c.discord.userName.collectAsState()
-    Group("Discord") {
+
+    var showActivityDialog by remember { mutableStateOf(false) }
+    var showStatusDialog by remember { mutableStateOf(false) }
+
+    Group("Discord Rich Presence") {
         Toggle(
             "Show what you're playing",
             when {
-                !c.discord.signedIn -> "\"Listening to Meow\" on your Discord profile, with the song and how far in. You sign in to Discord using official OAuth; the sign-in stays on this phone"
-                state == com.meow.music.discord.DiscordPresence.State.CONNECTED -> "On as ${user ?: "you"} · song names and artists go to Discord while you listen"
+                !c.discord.signedIn -> "\"Listening to Meow\" on your Discord profile, with the song and how far in. You sign in to Discord using official OAuth."
+                state == com.meow.music.discord.DiscordPresence.State.CONNECTED -> "Connected as ${user ?: "you"}"
                 state == com.meow.music.discord.DiscordPresence.State.CONNECTING -> "Connecting to Discord…"
-                else -> "On Discord as ${user ?: "you"}"
+                else -> "Signed in as ${user ?: "you"}"
             },
             s.discordPresence && c.discord.signedIn,
         ) { on ->
-            if (on && !c.discord.signedIn) nav.go(Routes.DISCORD_LOGIN) else c.settings.setDiscordPresence(on)
+            if (on && !c.discord.signedIn) nav.go(Routes.DISCORD_LOGIN) else prefs.setDiscordPresence(on)
         }
-        if (c.discord.signedIn) Item("Sign out of Discord", "Forgets the Discord sign-in on this phone", onClick = {
-            c.settings.setDiscordPresence(false)
-            c.discord.signOut()
-        })
+
+        if (s.discordPresence && c.discord.signedIn) {
+            Toggle(
+                "Show timestamps",
+                "Show elapsed time and song duration in rich presence",
+                s.discordShowTimestamps,
+            ) { prefs.setDiscordShowTimestamps(it) }
+
+            Toggle(
+                "Show action buttons",
+                "Show 'Listen on Meow' button on your rich presence",
+                s.discordShowButtons,
+            ) { prefs.setDiscordShowButtons(it) }
+
+            Item(
+                "Activity type",
+                s.discordActivityType.lowercase().replaceFirstChar { it.uppercase() },
+                onClick = { showActivityDialog = true },
+            )
+
+            Item(
+                "Online status",
+                s.discordOnlineStatus.lowercase().replaceFirstChar { it.uppercase() },
+                onClick = { showStatusDialog = true },
+            )
+        }
+
+        if (c.discord.signedIn) {
+            Item("Sign out of Discord", "Forgets the Discord sign-in on this device", onClick = {
+                prefs.setDiscordPresence(false)
+                c.discord.signOut()
+            })
+        }
+
         Item(
-            "About this", "Meow uses Discord OAuth and Rich Presence Gateway to show what you're playing on your Discord profile. " +
-                "Your sign-in remains private on this device.",
+            "About Discord Integration",
+            "Meow uses official Discord OAuth and Gateway Rich Presence to broadcast what you're playing. Your credentials remain private on this device.",
             onClick = {},
+        )
+    }
+
+    if (showActivityDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showActivityDialog = false },
+            title = { Text("Select activity type") },
+            text = {
+                Column {
+                    listOf("LISTENING", "PLAYING", "STREAMING", "WATCHING", "COMPETING").forEach { type ->
+                        TextButton(
+                            onClick = {
+                                prefs.setDiscordActivityType(type)
+                                showActivityDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(type.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showActivityDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showStatusDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showStatusDialog = false },
+            title = { Text("Select online status") },
+            text = {
+                Column {
+                    listOf("ONLINE", "IDLE", "DND", "INVISIBLE").forEach { status ->
+                        TextButton(
+                            onClick = {
+                                prefs.setDiscordOnlineStatus(status)
+                                showStatusDialog = false
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(status.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showStatusDialog = false }) { Text("Cancel") }
+            }
         )
     }
 }
