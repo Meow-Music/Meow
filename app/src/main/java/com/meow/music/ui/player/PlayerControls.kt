@@ -194,6 +194,9 @@ fun PlayerScrubber(positionMs: Long, durationMs: Long, centerLabel: @Composable 
     val duration = durationMs.coerceAtLeast(1)
     val shown = scrub ?: (positionMs.toFloat() / duration).coerceIn(0f, 1f)
     val style = LocalAppSettings.current.scrubberStyle
+    // The song's length or the time left (#82): tapping the time switches, and it stays that way.
+    val showLength = LocalAppSettings.current.showTrackLength
+    val c = LocalContainer.current
     Column(Modifier.fillMaxWidth()) {
         ThinSlider(
             value = shown,
@@ -206,7 +209,13 @@ fun PlayerScrubber(positionMs: Long, durationMs: Long, centerLabel: @Composable 
         Box(Modifier.fillMaxWidth().offset(y = (-9).dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(formatTime((shown * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.55f))
-                Text("-" + formatTime(duration - (shown * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.55f))
+                Text(
+                    if (showLength) formatTime(duration) else "-" + formatTime(duration - (shown * duration).toLong()),
+                    style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .clickable(onClickLabel = if (showLength) "Show time left" else "Show song length") { c.settings.setShowTrackLength(!showLength) },
+                )
             }
             centerLabel()
         }

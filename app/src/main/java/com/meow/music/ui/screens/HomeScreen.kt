@@ -256,12 +256,7 @@ private fun HomeTopBar() {
     val settings = LocalAppSettings.current
     val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     val greeting = settings.greetingText.trim().ifBlank {
-        when (hour) {
-            in 0..11 -> "Good morning"
-            in 12..16 -> "Good afternoon"
-            in 17..19 -> "Good evening"
-            else -> "Good Night"
-        }
+        when (hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
     }
     // In the language's own order ("Thursday 15 October", "10월 15일 목요일"), not English's with translated words.
     val today = remember {
@@ -550,7 +545,8 @@ private fun SpeedDialPages(items: List<BrowseItem>, open: (BrowseItem) -> Unit) 
             pager,
             // The next page peeks in from the side, so it's clear there's more.
             contentPadding = PaddingValues(start = 16.dp, end = if (pages.size > 1) 40.dp else 16.dp),
-            pageSpacing = 10.dp,
+            // As wide as the start padding, so the page before doesn't show as a sliver at the left edge (#67).
+            pageSpacing = 16.dp,
             verticalAlignment = Alignment.Top,
         ) { p ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -207,6 +207,29 @@ class LyricsState(
         }
     }
 
+    /** What the lyrics are looked up as, when the listener changed it (#63): (title, artist). */
+    val searchAs: Pair<String, String>? get() = repo.searchAs(song)
+
+    /**
+     * Looks the lyrics up again as [title] by [artist] (#63), from every source: what was found under the song's own
+     * title is forgotten, and so is a source picked for it.
+     */
+    fun searchAgainAs(title: String, artist: String, sources: List<LyricsSource>) {
+        repo.setSearchAs(song, title, artist)
+        repo.forgetChoice(song)
+        selectJob?.cancel()
+        found.clear(); providers.clear(); censoredSources.clear()
+        loading = true
+        selectJob = scope.launch {
+            val l = try { repo.auto(song, force = true) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+            lyrics = l
+            source = l?.source
+            l?.let { found[it.source] = it; providers[it.source] = it.state() }
+            loading = false
+            probeAll(sources)
+        }
+    }
+
     /** Checks every source in the background to show which ones have lyrics. */
     fun probeAll(sources: List<LyricsSource>) {
         sources.forEach { src ->
@@ -288,6 +311,24 @@ private fun List<LyricLine>.indexAt(ms: Long): Int {
     var idx = -1
     for (i in indices) if (this[i].timeMs in 0..ms) idx = i else if (this[i].timeMs > ms) break
     return idx
+}
+
+/**
+ * Every line being sung at [ms], in order: the latest to start, and any earlier one still going (#65: when two voices
+ * overlap, the first line stayed lit only until the second began, though it was still being sung). Lines with no
+ * end of their own (LRC) end where the next begins, so they never overlap.
+ */
+internal fun List<LyricLine>.activeAt(ms: Long): List<Int> {
+    val latest = indexAt(ms)
+    if (latest < 0) return emptyList()
+    val out = ArrayList<Int>(2)
+    // Overlaps are short: a few lines back is plenty.
+    for (i in maxOf(0, latest - 4) until latest) {
+        val l = this[i]
+        if (!l.isGap && l.isWordSynced && l.endMs > ms && l.timeMs <= ms) out += i
+    }
+    out += latest
+    return out
 }
 
 /** Current lyric, one line, directly above the scrubber. */
@@ -503,13 +544,23 @@ fun LyricsPanel(
     onHideControls: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
     val c = LocalContainer.current
     val settings by c.settings.flow.collectAsState()
     val lines = state.lines
     val synced = remember(lines) { lines.any { it.timeMs >= 0 } }
     val clock = rememberLyricClock(isPlaying)
     val active by remember(lines) { derivedStateOf { if (!synced) -1 else lines.indexAt(clock.value) } }
-    val lead by remember(lines) { derivedStateOf { if (!synced) -1 else lines.indexAt(clock.value + 300) } }
+    // Lines sung at the same time as [active] (two voices overlapping) stay lit with it (#65).
+    val alsoActive by remember(lines) { derivedStateOf { if (!synced) emptyList() else lines.activeAt(clock.value) } }
+    // The list follows the earliest line still being sung, so an overlapping pair stays in view together.
+    val lead by remember(lines) { derivedStateOf { if (!synced) -1 else lines.activeAt(clock.value + 300).firstOrNull() ?: -1 } }
     val listState = rememberLazyListState()
     var browsing by remember { mutableStateOf(false) }
     var placed by remember(state.song.id) { mutableStateOf(false) }
@@ -581,8 +632,8 @@ fun LyricsPanel(
                 return@itemsIndexed
             }
             if (!synced && line.isGap) { Spacer(Modifier.height(14.dp)); return@itemsIndexed }
-            val distance = if (active < 0) 4 else abs(index - active)
-            val isActive = synced && index == active
+            val isActive = synced && (index == active || index in alsoActive)
+            val distance = when { active < 0 -> 4; isActive -> 0; else -> alsoActive.ifEmpty { listOf(active) }.minOf { abs(index - it) } }
             val step = distance.coerceAtMost(FALLOFF_ALPHA.lastIndex)
             val blur by animateDpAsState(
                 if (!synced || !canBlur || browsing || isActive) 0.dp else FALLOFF_BLUR[step], tween(LYRIC_SETTLE_MS, easing = LYRIC_EASING), label = "blur",
@@ -628,6 +679,12 @@ fun LyricsPanel(
                         SweptLine(line, clock, style, Modifier.fillMaxWidth())
                     } else {
                         Text(line.text, style = style, color = Color.White.copy(alpha = lineAlpha), modifier = Modifier.fillMaxWidth())
+                    }
+                    // Background vocals, smaller under the line, lighting up word by word in their own time (#66).
+                    line.backgroundLine?.let { bg ->
+                        val bgStyle = style.copy(fontSize = style.fontSize * 0.6f, lineHeight = style.lineHeight * 0.64f, fontWeight = FontWeight.Bold)
+                        if (isActive) SweptLine(bg, clock, bgStyle, Modifier.fillMaxWidth().padding(top = 3.dp), dimAlpha = UNSUNG_ALPHA * 0.8f)
+                        else Text(bg.text, style = bgStyle, color = Color.White.copy(alpha = lineAlpha * 0.75f), modifier = Modifier.fillMaxWidth().padding(top = 3.dp))
                     }
                     translations?.getOrNull(index)?.takeUnless { it.equals(line.text.trim(), ignoreCase = true) }?.let { t ->
                         Text(
@@ -783,6 +840,64 @@ fun LyricsProviderSheet(state: LyricsState, onDismiss: () -> Unit) {
                         st == ProviderState.LOADING -> CircularProgressIndicator(Modifier.size(18.dp), color = scheme.onSurfaceVariant, strokeWidth = 2.dp)
                     }
                 }
+            }
+        }
+        SearchAsPane(state, settings.lyricsSources) { close {} }
+    }
+}
+
+/**
+ * "Search with another title" (#63): sources often have a song's lyrics under a title without "(feat. …)", or under
+ * its original-language name, while YouTube Music lists it another way. Every source but YouTube Music (which knows
+ * the song itself) is then asked by that title and artist, for this song from now on.
+ */
+@Composable
+private fun SearchAsPane(state: LyricsState, sources: List<LyricsSource>, onSearched: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val ui = com.meow.music.ui.theme.LocalUi.current
+    val current = state.searchAs
+    var open by remember(state.song.id) { mutableStateOf(false) }
+    var title by remember(state.song.id) { mutableStateOf(current?.first ?: state.song.title) }
+    var artist by remember(state.song.id) { mutableStateOf(current?.second?.ifBlank { null } ?: state.song.primaryArtist) }
+    Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 8.dp).fillMaxWidth().pane(ui.card, scheme.surfaceContainerHigh)) {
+        Row(
+            Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(MeowIcons.Search, null, tint = scheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Search with another title", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    current?.let { (t, a) -> "Looking up \"$t\"" + if (a.isNotBlank()) " by $a" else "" }
+                        ?: "When the lyrics are listed under a different name",
+                    style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (open) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) {
+            // The keyboard covers the pane's foot: its own key goes on to Artist, then searches.
+            androidx.compose.material3.OutlinedTextField(
+                title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Title") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+            )
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.OutlinedTextField(
+                artist, { artist = it }, Modifier.fillMaxWidth(), label = { Text("Artist") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = {
+                    if (title.isNotBlank()) { state.searchAgainAs(title, artist, sources); onSearched() }
+                }),
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (current != null) androidx.compose.material3.TextButton(onClick = {
+                    state.searchAgainAs("", "", sources); onSearched()
+                }) { Text("Use the song's own") }
+                Spacer(Modifier.weight(1f))
+                androidx.compose.material3.Button(enabled = title.isNotBlank(), onClick = {
+                    state.searchAgainAs(title, artist, sources); onSearched()
+                }) { Text("Search") }
             }
         }
     }

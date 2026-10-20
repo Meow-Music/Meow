@@ -124,7 +124,9 @@ private suspend fun relatedArtists(c: com.meow.music.AppContainer, s: Song): Lis
 }
 
 enum class SortMode(val label: String) {
-    DEFAULT("Original order"), TITLE("Title"), ARTIST("Artist"), GENRE("Genre"), DURATION("Duration"), ALBUM("Album")
+    DEFAULT("Original order"), TITLE("Title"), ARTIST("Artist"), GENRE("Genre"), DURATION("Duration"), ALBUM("Album"),
+    /** Downloads only: the original order (newest first) the other way round (#77). */
+    OLDEST("Oldest first"),
 }
 
 @Composable
@@ -277,6 +279,7 @@ private fun CollectionContent(type: CollectionType, live: LiveCollection, initia
             SortMode.GENRE -> filtered.sortedWith(compareBy<Song> { genres[it.id] ?: "￿" }.thenBy { it.artistText.lowercase() })
             SortMode.DURATION -> filtered.sortedBy { it.durationSec }
             SortMode.ALBUM -> filtered.sortedBy { it.album?.title?.lowercase() ?: "" }
+            SortMode.OLDEST -> filtered.asReversed()
         }
     }
     val source = QueueSource(if (type == CollectionType.ALBUM) QueueKind.ALBUM else QueueKind.PLAYLIST, page.title + (genreFilter?.let { " · $it" } ?: ""))
@@ -453,7 +456,7 @@ private fun CollectionContent(type: CollectionType, live: LiveCollection, initia
                                 )
                             }
                             DropdownMenu(sortMenu, { sortMenu = false }) {
-                                SortMode.entries.forEach { m ->
+                                SortMode.entries.filter { it != SortMode.OLDEST || type == CollectionType.DOWNLOADS }.forEach { m ->
                                     DropdownMenuItem({ Text(sortLabel(m, type)) }, { sort = m; sortMenu = false }, trailingIcon = { if (m == sort) Icon(MeowIcons.Check, null) })
                                 }
                                 HorizontalDivider()

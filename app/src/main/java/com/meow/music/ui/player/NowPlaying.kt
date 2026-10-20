@@ -273,6 +273,8 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
     )
     val swipe = remember { Animatable(0f) }
     val haptics = com.meow.music.ui.theme.rememberHaptics()
+    var seekFlash by remember { mutableStateOf<SeekFlash?>(null) }
+    LaunchedEffect(seekFlash?.at) { if (seekFlash != null) { delay(750); seekFlash = null } }
 
     // ---------------------------------------------------------------- Canvas
     val metered = remember { context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered == true }
@@ -293,6 +295,9 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
 
     // ---------------------------------------------------------------- Artwork
     val artUrl = hiRes(song.thumbnail, 1200)
+    // Decoded at full size whatever size the cover is first laid out at (#86): opened mid-animation or with lyrics
+    // open it starts out small, and the picture decoded for that size was then stretched over the whole cover.
+    val artRequest = remember(artUrl) { coil3.request.ImageRequest.Builder(context).data(artUrl).size(1200).build() }
     var artLoaded by remember(artUrl) { mutableStateOf(false) }
     val heroMode = settings.fullBleedArtwork && !videoMode
     var heroHeight by remember { mutableStateOf(0.dp) }
@@ -374,7 +379,7 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
         // ------------------------------------------------ Full-bleed banner (+ canvas)
         if (heroMode && heroHeight > 0.dp && !(collapsePastHalf && heroVisible() < 0.001f)) {
             AsyncImage(
-                artUrl, null, contentScale = ContentScale.Crop,
+                artRequest, null, contentScale = ContentScale.Crop,
                 onState = { if (it is AsyncImagePainter.State.Success) artLoaded = true },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -433,6 +438,18 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                 // Back above where it started: follow the finger back to the top rather than stopping short of it.
                 if (!closing) scope.launch { dismiss.snapTo(total.coerceAtLeast(0f)) }
             }
+        }
+        // Double-tap the cover's left or right half to seek back or ahead (#79), as on YouTube Music.
+        val seekStep = settings.doubleTapSeekSeconds
+        val doubleTapSeek = Modifier.pointerInput(lyricsOpen, queueOpen, statsOpen, seekStep) {
+            if (lyricsOpen || queueOpen || statsOpen || seekStep <= 0) return@pointerInput
+            detectTapGestures(onDoubleTap = { at ->
+                val ahead = at.x > size.width / 2
+                haptics.gestureEnd()
+                pc.seekBy(if (ahead) seekStep * 1000L else -seekStep * 1000L)
+                // Taps in a row add up on the label, as YouTube's does.
+                seekFlash = SeekFlash(ahead, if (seekFlash?.ahead == ahead) seekFlash!!.steps + 1 else 1, System.nanoTime())
+            })
         }
         val skipGesture = Modifier.pointerInput(lyricsOpen, queueOpen, statsOpen) {
             if (lyricsOpen || queueOpen || statsOpen) return@pointerInput
@@ -521,7 +538,7 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                         Modifier
                             .offset { IntOffset(artStart().roundToPx(), artTop().roundToPx()) }
                             .measuredSquare(::artSize)
-                            .then(if (!videoMode) sleeveGesture else Modifier)
+                            .then(if (!videoMode) sleeveGesture.then(doubleTapSeek) else Modifier)
                             .graphicsLayer {
                                 val idle = artScale + (1f - artScale) * p()
                                 scaleX = idle; scaleY = idle
@@ -549,13 +566,16 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                         ) {
                             if (!artLoaded) Icon(MeowIcons.Song, null, tint = Color.White.copy(alpha = 0.35f), modifier = Modifier.size(40.dp))
                             AsyncImage(
-                                artUrl, null, contentScale = ContentScale.Crop,
+                                artRequest, null, contentScale = ContentScale.Crop,
                                 onState = { if (it is AsyncImagePainter.State.Success) artLoaded = true },
                                 modifier = Modifier.fillMaxSize(),
                             )
                             if (!heroMode && !videoMode) canvas?.takeIf { !collapsePastHalf }?.let { clip ->
                                 CanvasPlayer(clip, canvasSaved, isPlaying, Modifier.fillMaxSize(), onCoverChanged = { canvasCover = it })
                             }
+                        }
+                        seekFlash?.takeIf { !collapsePastHalf }?.let { f ->
+                            SeekLabel(f, seekStep, Modifier.align(if (f.ahead) Alignment.CenterEnd else Alignment.CenterStart).padding(horizontal = 18.dp))
                         }
                     }
 
@@ -589,20 +609,21 @@ fun NowPlayingScreen(onCollapse: () -> Unit) {
                                 Modifier.clickable(enabled = song.album?.id != null) { song.album?.id?.let { onCollapse(); nav.go(Routes.album(it)) } },
                             )
                             // With more than one artist, the name asks which one to open (#42).
-                            val linked = song.artists.filter { it.id != null }.distinctBy { it.id }
+                            // Artists YouTube names without a link open by name (#78).
+                            val linked = com.meow.music.ui.components.openableArtists(song)
                             var pickArtist by remember(song.id) { mutableStateOf(false) }
                             Box {
                                 PlayerMarquee(
                                     song.artistText, MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.W500, fontSize = 17.sp, lineHeight = 22.sp), Color.White.copy(alpha = 0.6f), scrolls,
                                     Modifier.clickable(enabled = linked.isNotEmpty()) {
-                                        if (linked.size > 1) pickArtist = true else linked.firstOrNull()?.id?.let { onCollapse(); nav.go(Routes.artist(it)) }
+                                        if (linked.size > 1) pickArtist = true else linked.firstOrNull()?.let { onCollapse(); nav.go(Routes.artist(it)) }
                                     },
                                     delayMs = 5500,
                                 )
                                 androidx.compose.material3.DropdownMenu(pickArtist, { pickArtist = false }) {
                                     linked.forEach { a ->
                                         androidx.compose.material3.DropdownMenuItem(
-                                            { Text(a.name) }, { pickArtist = false; onCollapse(); nav.go(Routes.artist(a.id!!)) },
+                                            { Text(a.name) }, { pickArtist = false; onCollapse(); nav.go(Routes.artist(a)) },
                                             leadingIcon = { androidx.compose.material3.Icon(MeowIcons.Person, null) },
                                         )
                                     }
@@ -812,5 +833,24 @@ private fun FullscreenVideo(song: Song, forceLandscape: Boolean, pip: Boolean = 
                 }
             }
         }
+    }
+}
+
+/** The last double-tap seek on the cover (#79): which way, how many taps in a row, and when (to time the label out). */
+private data class SeekFlash(val ahead: Boolean, val steps: Int, val at: Long)
+
+/** "−10 s" / "+10 s" over the cover's side while double-taps seek. */
+@Composable
+private fun SeekLabel(f: SeekFlash, step: Int, modifier: Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!f.ahead) Icon(MeowIcons.Previous, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        Text(
+            (if (f.ahead) "+" else "−") + "${f.steps * step} s",
+            color = Color.White, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 6.dp),
+        )
+        if (f.ahead) Icon(MeowIcons.Next, null, tint = Color.White, modifier = Modifier.size(16.dp))
     }
 }

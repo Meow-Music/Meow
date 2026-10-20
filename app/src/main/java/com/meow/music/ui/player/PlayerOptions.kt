@@ -129,7 +129,7 @@ fun PlayerOptionsSheet(
     )
     val go = listOfNotNull(
         song.album?.id?.let { id -> ActionItem(MeowIcons.Album, "Go to album") { onCollapse(); nav.go(Routes.album(id)) } },
-    ) + com.meow.music.ui.components.goToArtists(song) { id -> onCollapse(); nav.go(Routes.artist(id)) } + listOfNotNull(
+    ) + com.meow.music.ui.components.goToArtists(song) { route -> onCollapse(); nav.go(route) } + listOfNotNull(
         if (song.id in disliked) ActionItem(MeowIcons.ThumbDownFilled, "Not for me", active = true, keepOpen = true) { c.library.setDisliked(song, false) }
         else ActionItem(MeowIcons.ThumbDown, "Not for me") {
             c.library.setDisliked(song, true)

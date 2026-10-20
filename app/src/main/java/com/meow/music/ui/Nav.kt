@@ -43,10 +43,14 @@ object Routes {
     const val INTERNET_ROOM = "internet_room"
     const val PODCASTS = "podcasts"
     fun podcast(id: String) = "podcast/${Uri.encode(id)}"
-    fun settings(section: String) = "settings/$section"
+    /** A settings page; [find] is the group to bring into view (a Settings search result, #73). */
+    fun settings(section: String, find: String? = null) = "settings/$section" + (find?.let { "?find=${Uri.encode(it)}" } ?: "")
     fun album(id: String) = "album/${Uri.encode(id)}"
     fun playlist(id: String) = "playlist/${Uri.encode(id)}"
     fun artist(id: String) = "artist/${Uri.encode(id)}"
+    /** An artist's page; one a song names without a link (#78) is looked up by name when it opens. */
+    fun artist(ref: com.meow.music.data.model.ArtistRef) =
+        artist(ref.id ?: (com.meow.music.data.innertube.YouTubeMusic.ARTIST_BY_NAME + ref.name))
     fun liked(genre: String? = null) = if (genre == null) "liked" else "liked?genre=${Uri.encode(genre)}"
     fun browse(id: String, params: String?, title: String) =
         "browse/${Uri.encode(id)}?params=${Uri.encode(params ?: "")}&title=${Uri.encode(title)}"

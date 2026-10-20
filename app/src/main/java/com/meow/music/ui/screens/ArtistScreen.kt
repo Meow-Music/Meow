@@ -282,7 +282,7 @@ private fun ArtistContent(page: ArtistPage, bottomPadding: Dp) {
                 sections.live?.let { s -> item("live") { AppleHeader("Live", more(s)); CardRow(s.items, 260.dp, aspect = 16f / 9f, open = open) } }
                 sections.featured?.let { s -> item("featured") { AppleHeader("Appears On", more(s)); CardRow(s.items, 150.dp, open = open) } }
                 sections.playlists?.let { s -> item("playlists") { AppleHeader("Artist Playlists", more(s)); CardRow(s.items, 150.dp, open = open) } }
-                sections.others.forEach { shelf -> shelfItems(shelf, open) }
+                sections.others.forEach { shelf -> shelfItems(shelf, open = open) }
                 sections.similar?.let { s -> item("similar") { AppleHeader("Similar Artists", more(s)); CardRow(s.items, 128.dp, round = true, open = open) } }
                 item("about") { AboutCard(page, genre) { showInfo = true } }
             }
@@ -697,16 +697,21 @@ private fun SignatureOption(name: String, label: String, type: com.meow.music.ui
     }
 }
 
-fun androidx.compose.foundation.lazy.LazyListScope.shelfItems(shelf: Shelf, open: (BrowseItem) -> Unit) {
+/**
+ * A shelf as a few song rows (or a carousel of cards). [whole]: the shelf is the page's only content (a "See all"
+ * page), so every song is listed and the page's own title stands for the heading (#69: it showed the first six under
+ * an empty heading).
+ */
+fun androidx.compose.foundation.lazy.LazyListScope.shelfItems(shelf: Shelf, whole: Boolean = false, open: (BrowseItem) -> Unit) {
     val songs = shelf.items.filterIsInstance<SongItem>().map { it.song }
     if (songs.size == shelf.items.size && songs.none { it.isVideo }) {
-        item(key = "h:" + shelf.title) {
+        if (!whole) item(key = "h:" + shelf.title) {
             val nav = LocalNavigator.current
             SectionHeader(shelf.title, onMore = shelf.moreBrowseId?.let { id ->
                 { if (id.startsWith("VL")) nav.go(Routes.playlist(id)) else nav.go(Routes.browse(id, shelf.moreParams, shelf.title)) }
             })
         }
-        items(songs.take(6), key = { "s:" + shelf.title + it.id }) { s ->
+        items(if (whole) songs else songs.take(6), key = { "s:" + shelf.title + it.id }) { s ->
             val c = LocalContainer.current
             SongRow(s) { c.player.playQueue(songs, songs.indexOf(s), QueueSource(QueueKind.OTHER, shelf.title)) }
         }
@@ -746,7 +751,7 @@ fun BrowseScreen(id: String, params: String?, title: String, bottomPadding: Dp) 
                     // down the page, rather than one sideways carousel.
                     shelf.items.none { it is SongItem } && (shelf.grid || s.value.size == 1) ->
                         cardGrid(shelf, showTitle = s.value.size > 1) { nav.open(it, onSong) }
-                    else -> shelfItems(shelf) { nav.open(it, onSong) }
+                    else -> shelfItems(shelf, whole = s.value.size == 1) { nav.open(it, onSong) }
                 }
             }
         }

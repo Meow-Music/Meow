@@ -492,7 +492,7 @@ fun SongActionsSheet(song: Song, extra: List<SheetItem> = emptyList(), onDismiss
         else if (song.isEpisode) ActionItem(MeowIcons.DoneAll, "Mark as played") { c.episodes.markPlayed(song.id) } else null,
         if (c.settings.current.isLoggedIn && !local) ActionItem(MeowIcons.PlaylistAdd, "Add to playlist", keepOpen = true) { pickPlaylist = true } else null,
         song.album?.id?.let { id -> ActionItem(MeowIcons.Album, "Go to album", value = song.album?.title?.takeIf { it.length <= 22 }) { nav.go(Routes.album(id)) } },
-    ) + goToArtists(song) { id -> nav.go(Routes.artist(id)) }
+    ) + goToArtists(song) { route -> nav.go(route) }
     val more = extra.map { it.toAction() } + listOfNotNull(
         // Your own FLAC / MP3 files (a Local file, or the lossless file played for this song) can keep its lyrics (#16).
         if (local || dl?.lossless == true) ActionItem(MeowIcons.Lyrics, "Save lyrics into the file") { c.lyricsToFiles.request(listOf(song)) } else null,
@@ -669,9 +669,17 @@ fun <T> SortButton(options: List<T>, selected: T, label: (T) -> String, modifier
     }
 }
 
-/** "Go to …" for each of a song's artists that has a page (#42): a song with features lists every one, not only the first. */
+/**
+ * The artists of a song that can be opened: linked ones, and (#78) ones YouTube named without a link, which open by
+ * name ([com.meow.music.ui.Routes.artist]). A file on the phone has no YouTube artists.
+ */
+fun openableArtists(song: Song): List<com.meow.music.data.model.ArtistRef> =
+    if (song.isLocal) emptyList()
+    else song.artists.filter { it.name.isNotBlank() }.distinctBy { it.id ?: com.meow.music.data.innertube.SearchRank.norm(it.name) }
+
+/** "Go to …" for each of a song's artists (#42): a song with features lists every one, not only the first. */
 fun goToArtists(song: Song, go: (String) -> Unit): List<ActionItem> =
-    song.artists.filter { it.id != null }.distinctBy { it.id }.take(5).map { a -> ActionItem(MeowIcons.Person, "Go to ${a.name}") { go(a.id!!) } }
+    openableArtists(song).take(5).map { a -> ActionItem(MeowIcons.Person, "Go to ${a.name}") { go(com.meow.music.ui.Routes.artist(a)) } }
 
 /** A list's count on the left and its [SortButton] on the right. */
 @Composable

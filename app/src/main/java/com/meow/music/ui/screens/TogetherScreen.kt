@@ -78,21 +78,7 @@ fun TogetherScreen(bottomPadding: Dp) {
             is TogetherState.Hosting -> item("hosting") { Hosting(s) }
             is TogetherState.Guest -> item("guest") { GuestView(s) }
         }
-        item("internet_banner") { InternetRoomBanner() }
         item("how") { HowItWorks() }
-    }
-}
-
-@Composable
-private fun InternetRoomBanner() {
-    val nav = LocalNavigator.current
-    Group("Friends far away?") {
-        Item(
-            title = "Open Internet Room (Global Sync)",
-            subtitle = "Listen together with friends across different Wi-Fi networks or mobile data via cloud sync.",
-            onClick = { nav.go(Routes.INTERNET_ROOM) },
-            icon = MeowIcons.CheckCircle
-        ) { Icon(MeowIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

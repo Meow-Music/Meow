@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,6 +70,8 @@ fun MiniPlayer(modifier: Modifier = Modifier, onOpen: () -> Unit) {
     val ui = LocalUi.current
     val position = rememberPosition(fast = false)
     val drag = remember { Animatable(0f) }
+    // Pulled down far enough, it stops the music and goes (#59).
+    val pull = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val scheme = MaterialTheme.colorScheme
     val haptics = com.meow.music.ui.theme.rememberHaptics()
@@ -89,7 +93,29 @@ fun MiniPlayer(modifier: Modifier = Modifier, onOpen: () -> Unit) {
         modifier
             .fillMaxWidth()
             .height(height)
-            .offset { IntOffset(drag.value.roundToInt(), 0) }
+            .offset { IntOffset(drag.value.roundToInt(), pull.value.roundToInt()) }
+            .graphicsLayer { alpha = 1f - (pull.value / (height.toPx() * 1.6f)).coerceIn(0f, 0.85f) }
+            .pointerInput(Unit) {
+                val stopAt = height.toPx() * 0.9f
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            if (pull.value > stopAt) {
+                                haptics.gestureEnd()
+                                pull.animateTo(height.toPx() * 1.6f)
+                                pc.stop()
+                                pull.snapTo(0f)
+                            } else pull.animateTo(0f)
+                        }
+                    },
+                    onDragCancel = { scope.launch { pull.animateTo(0f) } },
+                ) { change, d ->
+                    change.consume()
+                    val after = (pull.value + d).coerceAtLeast(0f)
+                    if ((pull.value < stopAt) != (after < stopAt)) haptics.threshold()
+                    scope.launch { pull.snapTo(after) }
+                }
+            }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {

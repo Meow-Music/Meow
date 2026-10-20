@@ -130,6 +130,13 @@ fun SearchScreen(bottomPadding: Dp) {
         saveQuery(q)
     }
 
+    // Settings → Layout & navigation → Search → "Open the keyboard" (#71): an empty Search comes up ready to type.
+    LaunchedEffect(Unit) {
+        if (c.settings.current.searchKeyboard && query.isBlank()) {
+            delay(250) // after the tab's own transition, or the keyboard can come up and drop again
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     LaunchedEffect(query) {
         if (query.isBlank()) { suggestions.clear(); live = ""; return@LaunchedEffect }
         // The listener's own artists and searches come first (from the phone, at once), then YouTube's completions.

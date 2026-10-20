@@ -2,6 +2,8 @@ package com.meow.music.ui.screens
 
 import com.meow.music.ui.theme.MeowIcons
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -36,14 +38,35 @@ import com.meow.music.ui.components.Segmented
 import com.meow.music.ui.components.pane
 import com.meow.music.ui.theme.LocalUi
 
+/** The group a Settings search result opened its page at (#73): it scrolls into view and glows for a moment. */
+val LocalSettingsFind = androidx.compose.runtime.compositionLocalOf<String?> { null }
+
 /** A titled card of settings rows (a pane of frosted glass on a frosted page). */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Group(title: String, content: @Composable ColumnScope.() -> Unit) {
     val ui = LocalUi.current
-    Column {
+    val found = title.isNotBlank() && LocalSettingsFind.current == title
+    val requester = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    val glow = remember { androidx.compose.animation.core.Animatable(0f) }
+    // Asked for with three quarters of the screen below its top, so the group lands in the upper part of the page
+    // rather than just inside the bottom edge, under the tab bar.
+    val reach = with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx() * 0.75f }
+    if (found) LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(300) // once the page has laid out
+        requester.bringIntoView(androidx.compose.ui.geometry.Rect(0f, 0f, 1f, reach))
+        glow.animateTo(1f, androidx.compose.animation.core.tween(220))
+        kotlinx.coroutines.delay(900)
+        glow.animateTo(0f, androidx.compose.animation.core.tween(800))
+    }
+    Column(Modifier.then(if (found) Modifier.bringIntoViewRequester(requester) else Modifier)) {
         if (title.isNotBlank()) Eyebrow(title, Modifier.padding(start = 8.dp, bottom = 8.dp))
         Column(
             Modifier.fillMaxWidth().pane(ui.card, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f))
+                .then(
+                    if (glow.value > 0f) Modifier.border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = glow.value), ui.card)
+                    else Modifier
+                )
                 .padding(vertical = ui.gap(6.dp)),
             content = content,
         )

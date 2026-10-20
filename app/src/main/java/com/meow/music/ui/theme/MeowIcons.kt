@@ -36,11 +36,11 @@ enum class IconPack(val label: String, val detail: String) {
 
 object IconStyle {
     private const val PREFS = "icon_style"
-    @Volatile var weight = IconWeight.BOLD
+    @Volatile var weight = IconWeight.REGULAR
         private set
     @Volatile var rounded = true
         private set
-    @Volatile var pack = IconPack.CUPERTINO
+    @Volatile var pack = IconPack.MEOW
         private set
 
     fun load(context: android.content.Context) {
@@ -51,7 +51,7 @@ object IconStyle {
 
     fun savedPack(context: android.content.Context): IconPack {
         val p = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-        val saved = p.getString("pack", null); return if (saved == "PRISM") IconPack.MEOW else (IconPack.entries.firstOrNull { it.name == saved } ?: IconPack.MEOW)
+        return IconPack.entries.firstOrNull { it.name == p.getString("pack", null) } ?: IconPack.MEOW
     }
 
     fun savePack(context: android.content.Context, pack: IconPack) {

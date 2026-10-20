@@ -1,0 +1,10 @@
+Laxmee, Designer, Tiktok "tiktok.com/@laxmeee11"
+bio- "Cute Pookie who hunts bugs for sport and negotiates with UI elements until they behave. The secret mastermind keeping everyone sane and stylish."
+
+Rozan, UI/UX, (messenger) "m.me/rojan.lama.9"
+bio- "if (brain != empty) keepCoding(); else orderCoffee(); \nTurning chaotic pixels into buttery-smooth UI masterpieces."
+
+Rexx, Lead Developer, (Github) https://github.com/Meow-Music,
+ (messenger)"m.me/rexofhell",
+ (telegram) t.me/rex_mahakaal.
+ bio- "if (mood == sad) { take.break(); listen.music(); drink.coffee(); } \nPowered by 99% coffee, 1% panic, and pure Kotlin magic."

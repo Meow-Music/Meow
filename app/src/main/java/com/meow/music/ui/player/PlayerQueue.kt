@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -60,8 +61,12 @@ fun InlineQueue(onRevealPlayer: () -> Unit, onHidePlayer: () -> Unit, modifier: 
     val autoplayStart by c.queue.autoplayStart.collectAsState()
     val source by c.queue.source.collectAsState()
     val settings by c.settings.flow.collectAsState()
-    val listState = rememberLazyListState()
-    LaunchedEffect(index) { if (listState.firstVisibleItemIndex != 0) listState.animateScrollToItem(0) }
+    // Songs already played sit above Now Playing (#68), a scroll up; the list opens at Now Playing.
+    val playedIdx by pc.played.collectAsState()
+    val played = playedIdx.takeLast(MAX_PLAYED).mapNotNull { queue.getOrNull(it) }
+    val nowItem = if (played.isEmpty()) 0 else played.size + 1
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = nowItem)
+    LaunchedEffect(index) { if (listState.firstVisibleItemIndex != nowItem) listState.animateScrollToItem(nowItem) }
 
     val now = queue.getOrNull(index)
     val autoplayFrom = if (autoplayStart > 0) autoplayStart else queue.size
@@ -100,6 +105,15 @@ fun InlineQueue(onRevealPlayer: () -> Unit, onHidePlayer: () -> Unit, modifier: 
         }
         Spacer(Modifier.height(4.dp))
         LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().nestedScroll(controlsOnScroll), contentPadding = PaddingValues(bottom = 24.dp)) {
+            if (played.isNotEmpty()) {
+                item(key = "h-played") { Heading("Played", Modifier.padding(top = 12.dp, bottom = 6.dp)) }
+                items(played, key = { "played-" + it.uid }) { entry ->
+                    QueueRow(
+                        entry.song, isCurrent = false, onClick = { pc.skipTo(entry.index) }, onRemove = { pc.removeAt(entry.index) },
+                        modifier = Modifier.alpha(0.6f),
+                    )
+                }
+            }
             if (now != null) {
                 item(key = "h-now") { Heading("Now Playing", Modifier.padding(top = 12.dp, bottom = 6.dp)) }
                 item(key = "now-" + now.uid) { QueueRow(now.song, isCurrent = true, onClick = {}, onRemove = null) }
@@ -119,6 +133,9 @@ fun InlineQueue(onRevealPlayer: () -> Unit, onHidePlayer: () -> Unit, modifier: 
         }
     }
 }
+
+/** How many played songs the queue lists above Now Playing (the latest ones). */
+private const val MAX_PLAYED = 100
 
 /** [reorder] is off while shuffled: dragging moves songs in the list, not in the shuffled order. */
 private fun LazyListScope.queueSection(rows: List<QueueEntry>, reorder: Boolean = true, onMove: (Int, Int) -> Unit) {

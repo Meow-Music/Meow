@@ -40,7 +40,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -159,6 +158,8 @@ fun LoginScreen(onDone: () -> Unit, onBack: () -> Unit, addAccount: Boolean = fa
             onRelease = { it.stopLoading(); it.destroy() },
             factory = { ctx ->
                 WebView(ctx).apply {
+                    // Fills the box (see DiscordLoginScreen: a WRAP_CONTENT WebView measures viewport units as 0).
+                    layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     // Google blocks sign-in from user agents flagged as embedded web views.
@@ -240,145 +241,180 @@ fun LoginScreen(onDone: () -> Unit, onBack: () -> Unit, addAccount: Boolean = fa
 }
 
 /**
- * Signs in to Discord for "Listening to Meow" presence on the listener's profile via OAuth.
+ * Signs in to Discord on Discord's own page, for "Listening to Meow" (Settings → Discord). Meow never sees the
+ * password: once Discord's web app is open, it reads the session Discord keeps for that page, then leaves. When the
+ * page can't load (no connection, or a network that blocks Discord, as some work and school ones do) it says so,
+ * with Try again, rather than showing an empty page.
  */
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun DiscordLoginScreen(onBack: () -> Unit) {
     val c = LocalContainer.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val user by c.discord.userName.collectAsState()
-    val signedIn = c.discord.signedIn
+    var web by remember { mutableStateOf<WebView?>(null) }
+    var done by remember { mutableStateOf(false) }
+    var progress by remember { mutableStateOf(0f) }
+    /** Why Discord's page didn't load, when it didn't. */
+    var failed by remember { mutableStateOf<String?>(null) }
 
-    var showManualTokenDialog by remember { mutableStateOf(false) }
-    var manualTokenInput by remember { mutableStateOf("") }
-
-    androidx.compose.runtime.LaunchedEffect(signedIn) {
-        if (signedIn) {
-            c.settings.setDiscordPresence(true)
-            onBack()
-        }
+    fun finish(token: String) {
+        if (done || token.isBlank()) return
+        done = true
+        c.discord.signIn(token)
+        c.settings.setDiscordPresence(true)
+        // The page's own copy goes; Meow keeps the session in its own storage (never in backups).
+        android.webkit.WebStorage.getInstance().deleteOrigin("https://discord.com")
+        onBack()
     }
 
-    fun launchOAuth() {
-        val authUri = c.discord.startAuthorization()
-        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, authUri)
-        context.startActivity(intent)
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        TopAppBar(
-            title = { Text("Sign in to Discord") },
-            navigationIcon = { IconButton(onClick = onBack) { Icon(MeowIcons.ArrowBack, "Back") } },
-            actions = {
-                TextButton(onClick = { showManualTokenDialog = true }) {
-                    Text("Enter token")
-                }
-            },
-        )
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                painter = androidx.compose.ui.res.painterResource(com.meow.music.R.drawable.app_icon_meow_logo),
-                contentDescription = "Meow",
-                modifier = Modifier.size(72.dp),
-                tint = Color.Unspecified
-            )
-            Spacer(Modifier.height(20.dp))
-            Text(
-                "Discord Rich Presence",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Display what you're listening to on Meow directly on your Discord profile with song names, artists, and album artwork.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            Spacer(Modifier.height(32.dp))
-
-            if (signedIn) {
-                Text(
-                    "Signed in as ${user ?: "Discord User"}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = { c.discord.signOut() }) {
-                    Text("Sign out")
-                }
-            } else {
-                Button(
-                    onClick = { launchOAuth() },
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .height(50.dp),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Sign in with Discord", style = MaterialTheme.typography.titleMedium)
-                }
+    LaunchedEffect(Unit) {
+        while (isActive && !done) {
+            delay(1_000)
+            val view = web ?: continue
+            if (view.url?.contains("discord.com") != true) continue
+            // Asked on every page: Discord signs in without leaving /login (the app draws in place), and with
+            // two-factor or a QR code the address can lag behind; no session simply comes back empty.
+            view.evaluateJavascript(DISCORD_HOOK_JS, null)
+            view.evaluateJavascript(DISCORD_TOKEN_JS) { result ->
+                val token = runCatching {
+                    com.meow.music.data.innertube.InnerTube.json.parseToJsonElement(result)
+                        .let { (it as kotlinx.serialization.json.JsonPrimitive).content }.trim('"')
+                }.getOrNull()
+                if (!token.isNullOrBlank()) finish(token)
             }
         }
     }
 
-    if (showManualTokenDialog) {
-        AlertDialog(
-            onDismissRequest = { showManualTokenDialog = false },
-            title = { Text("Enter Discord Token") },
-            text = {
-                Column {
-                    Text(
-                        "Paste your Discord account token directly to sign in.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = manualTokenInput,
-                        onValueChange = { manualTokenInput = it },
-                        label = { Text("Discord Token") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (manualTokenInput.isNotBlank()) {
-                            showManualTokenDialog = false
-                            c.discord.signInWithToken(manualTokenInput.trim()) { success ->
-                                if (success) {
-                                    c.settings.setDiscordPresence(true)
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        TopAppBar(
+            title = { Text("Sign in to Discord") },
+            navigationIcon = { IconButton(onClick = onBack) { Icon(MeowIcons.ArrowBack, "Back") } },
+        )
+        if (progress < 1f && failed == null) LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth())
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                onRelease = { it.stopLoading(); it.destroy() },
+                factory = { ctx ->
+                    if (com.meow.music.BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
+                    WebView(ctx).apply {
+                        // A WebView left at AndroidView's WRAP_CONTENT takes its page height from its content, so a page
+                        // sized in viewport units (100vh) measures 0: Discord's login drew nothing (#72). It fills the box.
+                        layoutParams = android.view.ViewGroup.LayoutParams(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        // As Chrome on the phone: Android's in-app browser marks itself ("; wv", "Version/4.0"), which
+                        // sites can treat as an embedded sign-in and refuse.
+                        settings.userAgentString = settings.userAgentString
+                            .replace(Regex(";\\s*wv\\)"), ")").replace(Regex("\\s*Version/\\d+(\\.\\d+)*"), "")
+                        CookieManager.getInstance().setAcceptCookie(true)
+                        CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                        webChromeClient = object : android.webkit.WebChromeClient() {
+                            override fun onProgressChanged(view: WebView, newProgress: Int) { progress = newProgress / 100f }
+                        }
+                        webViewClient = object : WebViewClient() {
+                            // Discord's links to its apps (discord://) would dead-end here.
+                            override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean =
+                                request.url.scheme != "http" && request.url.scheme != "https"
+
+                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) { failed = null }
+
+                            override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
+                                if (request.isForMainFrame) failed = error.description?.toString().orEmpty()
+                            }
+
+                            override fun onReceivedHttpError(view: WebView, request: android.webkit.WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                                if (request.isForMainFrame && response.statusCode >= 400) failed = "Discord answered HTTP ${response.statusCode}"
+                            }
+
+                            // A load the network cut off can end without an error, on an empty page: say so too.
+                            override fun onPageFinished(view: WebView, url: String) {
+                                if (done) return
+                                // Listen to Discord's own requests before anyone types: the sign-in answer carries the session.
+                                view.evaluateJavascript(DISCORD_HOOK_JS, null)
+                                view.evaluateJavascript("document.documentElement.innerHTML.length") { len ->
+                                    if ((len.toIntOrNull() ?: 0) < 200 && failed == null) failed = "The page came back empty"
                                 }
                             }
                         }
-                    },
-                    enabled = manualTokenInput.isNotBlank(),
+                        loadUrl(DISCORD_LOGIN_URL)
+                        web = this
+                    }
+                },
+            )
+            failed?.let { why ->
+                Column(
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp),
+                    verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("Sign in")
+                    Text("Couldn't reach Discord", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Check your connection. Some networks, such as work and school ones, block Discord: try another " +
+                            "Wi-Fi or mobile data.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (why.isNotBlank()) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Button(onClick = { failed = null; progress = 0f; web?.loadUrl(DISCORD_LOGIN_URL) }) { Text("Try again") }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showManualTokenDialog = false }) {
-                    Text("Cancel")
-                }
-            },
-        )
+            }
+        }
     }
 }
+
+private const val DISCORD_LOGIN_URL = "https://discord.com/login"
+
+/**
+ * The signed-in session from Discord's web app. Discord hides `localStorage` from its own window once it's open, but a
+ * fresh frame on the page can still read the token there; failing that, it's asked of Discord's own code (the
+ * module with `getToken`), the way other Android players sign in to Discord.
+ */
+private val DISCORD_TOKEN_JS = """
+    (function(){
+      var t=window.__meowToken||'';
+      if(!t){
+      try{var f=document.createElement('iframe');f.style.display='none';document.body.appendChild(f);
+        t=JSON.parse(f.contentWindow.localStorage.getItem('token')||'""')||'';f.remove();}catch(e){}}
+      if(!t){try{
+        var mods=[];
+        window.webpackChunkdiscord_app.push([[Symbol()],{},function(r){for(var k in r.c)mods.push(r.c[k]);}]);
+        window.webpackChunkdiscord_app.pop();
+        for(var i=0;i<mods.length&&!t;i++){
+          var x=mods[i]&&mods[i].exports; if(!x)continue;
+          var cands=[x];try{for(var key in x)cands.push(x[key]);}catch(e){}
+          for(var j=0;j<cands.length;j++){var o=cands[j];
+            try{if(o&&typeof o.getToken==='function'){var v=o.getToken();if(typeof v==='string'&&v){t=v;break;}}}catch(e){}}
+        }
+      }catch(e){}}
+      return typeof t==='string'?t:'';
+    })()
+""".trimIndent()
+
+/**
+ * Keeps the session Discord's page itself hands out: the `token` in the answer to signing in (password, two-factor or
+ * QR code) and the `Authorization` its later requests carry. Installed once per page; Discord stays on one page.
+ */
+private val DISCORD_HOOK_JS = """
+    (function(){
+      if(window.__meowHooked)return; window.__meowHooked=true;
+      function keep(v){if(typeof v==='string'&&v.length>20&&v.indexOf(' ')<0)window.__meowToken=v;}
+      function read(txt){try{var j=JSON.parse(txt);if(j&&j.token)keep(j.token);}catch(e){}}
+      var X=XMLHttpRequest.prototype, open=X.open, send=X.send, set=X.setRequestHeader;
+      X.setRequestHeader=function(k,v){if(String(k).toLowerCase()==='authorization')keep(v);return set.apply(this,arguments);};
+      X.open=function(m,u){this.__u=String(u);return open.apply(this,arguments);};
+      X.send=function(){var x=this;if(/\/auth\/|\/login/.test(x.__u||''))x.addEventListener('load',function(){read(x.responseText);});
+        return send.apply(this,arguments);};
+      var f=window.fetch; if(f)window.fetch=function(i,o){
+        try{var h=o&&o.headers;if(h)keep(typeof h.get==='function'?h.get('Authorization'):(h.Authorization||h.authorization));}catch(e){}
+        var p=f.apply(this,arguments), u=String(i&&i.url||i);
+        if(/\/auth\/|\/login/.test(u))p.then(function(r){r.clone().text().then(read);}).catch(function(){});
+        return p;};
+    })()
+""".trimIndent()
 
 @Composable
 fun WelcomeScreen(onSignIn: () -> Unit, onSkip: () -> Unit) {
