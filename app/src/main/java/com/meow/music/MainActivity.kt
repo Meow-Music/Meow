@@ -398,8 +398,16 @@ private fun MeowRoot(deepLink: MutableStateFlow<Uri?>) {
                         composable(Routes.REPLAY) { ScreenBackdrop(BackdropScreen.REPLAY) { ReplayScreen(bottomPadding) } }
                         composable(Routes.SETTINGS) { ScreenBackdrop(BackdropScreen.SETTINGS) { SettingsScreen(bottomPadding) } }
                         composable(Routes.BACKGROUNDS) { ScreenBackdrop(BackdropScreen.SETTINGS) { com.meow.music.ui.screens.BackgroundsScreen(bottomPadding) } }
-                        composable("settings/{section}", listOf(navArgument("section") { type = NavType.StringType })) {
-                            ScreenBackdrop(BackdropScreen.SETTINGS) { SettingsScreen(bottomPadding, com.meow.music.ui.screens.SettingsSection.of(it.arguments?.getString("section"))) }
+                        composable(
+                            "settings/{section}?find={find}",
+                            listOf(
+                                navArgument("section") { type = NavType.StringType },
+                                navArgument("find") { type = NavType.StringType; nullable = true; defaultValue = null },
+                            ),
+                        ) {
+                            ScreenBackdrop(BackdropScreen.SETTINGS) {
+                                SettingsScreen(bottomPadding, com.meow.music.ui.screens.SettingsSection.of(it.arguments?.getString("section")))
+                            }
                         }
                         composable(Routes.EQ) { ScreenBackdrop(BackdropScreen.SETTINGS) { EqualizerScreen(bottomPadding) } }
                         composable(Routes.CATALOGUE) { ScreenBackdrop(BackdropScreen.HOME) { CatalogueScreen(bottomPadding) } }

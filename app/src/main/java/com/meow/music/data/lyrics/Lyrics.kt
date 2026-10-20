@@ -34,8 +34,14 @@ data class LyricLine(
     val alignEnd: Boolean = false,
     /** An instrumental break between lines. */
     val isGap: Boolean = false,
+    /** Background vocals sung with the line ("(Back to let you know)"), word-timed; drawn smaller under it (#66). */
+    val background: List<LyricWord> = emptyList(),
 ) {
     val isWordSynced: Boolean get() = words.isNotEmpty()
+
+    /** The background vocals as a line of their own, for drawing; null when there are none. */
+    val backgroundLine: LyricLine? get() = if (background.isEmpty()) null else
+        LyricLine(background.first().startMs, background.joinToString("") { it.text }.trim(), background.last().endMs, background, alignEnd)
 }
 
 data class Lyrics(
@@ -250,23 +256,47 @@ object Ttml {
         return runCatching { (s.split(":").fold(0.0) { acc, p -> acc * 60 + p.toDouble() } * 1000).toLong() }.getOrNull()
     }
 
-    /** Removes background-vocal spans (which nest spans of their own). */
-    private fun stripBackground(content: String): String {
+    /**
+     * Takes the background-vocal spans (which nest spans of their own) out of a line: the line without them, and what
+     * was inside each, for the background vocals under it (#66).
+     */
+    private fun splitBackground(content: String): Pair<String, List<String>> {
         val sb = StringBuilder(content)
+        val background = mutableListOf<String>()
         while (true) {
             val start = Regex("<span[^>]*ttm:role=\"x-bg\"[^>]*>").find(sb) ?: break
             var depth = 0
-            var i = start.range.first
             var end = -1
-            val tags = Regex("<span\\b[^>]*>|</span>").findAll(sb, i)
+            val tags = Regex("<span\\b[^>]*>|</span>").findAll(sb, start.range.first)
             for (m in tags) {
                 if (m.value.startsWith("</")) depth-- else depth++
                 if (depth == 0) { end = m.range.last + 1; break }
             }
             if (end < 0) break
+            // What's between the background span's own tags.
+            background += sb.substring(start.range.last + 1, end - "</span>".length)
             sb.delete(start.range.first, end)
         }
-        return sb.toString()
+        return sb.toString() to background
+    }
+
+    /** A word-timed run of spans as words, a space kept after each word that has one after it. */
+    private fun timedWords(content: String): List<LyricWord> {
+        val words = mutableListOf<LyricWord>()
+        var last = 0
+        for (w in wordSpan.findAll(content)) {
+            val between = content.substring(last, w.range.first)
+            if (words.isNotEmpty() && between.contains(Regex("\\s"))) {
+                val prev = words.removeAt(words.lastIndex)
+                words += prev.copy(text = prev.text + " ")
+            }
+            val a = w.groupValues[1]
+            val s = time(attr(a, "begin")) ?: continue
+            val e = time(attr(a, "end")) ?: s
+            words += LyricWord(s, e, w.groupValues[2].decodeEntities())
+            last = w.range.last + 1
+        }
+        return words
     }
 
     fun parse(ttml: String): List<LyricLine> {
@@ -287,27 +317,16 @@ object Ttml {
             val begin = time(attr(attrs, "begin")) ?: continue
             val end = time(attr(attrs, "end")) ?: begin
             val agent = attr(attrs, "ttm:agent")
-            val content = stripBackground(m.groupValues[2])
-            val words = mutableListOf<LyricWord>()
-            if (wordTimed) {
-                var last = 0
-                for (w in wordSpan.findAll(content)) {
-                    val between = content.substring(last, w.range.first)
-                    if (words.isNotEmpty() && between.contains(Regex("\\s"))) {
-                        val prev = words.removeAt(words.lastIndex)
-                        words += prev.copy(text = prev.text + " ")
-                    }
-                    val a = w.groupValues[1]
-                    val s = time(attr(a, "begin")) ?: continue
-                    val e = time(attr(a, "end")) ?: s
-                    words += LyricWord(s, e, w.groupValues[2].decodeEntities())
-                    last = w.range.last + 1
-                }
-            }
+            val (content, bgParts) = splitBackground(m.groupValues[2])
+            val words = if (wordTimed) timedWords(content) else emptyList()
+            // Several background runs in one line follow each other with a space between.
+            val background = if (!wordTimed) emptyList() else bgParts.map(::timedWords).filter { it.isNotEmpty() }
+                .flatMapIndexed { i, run -> if (i == 0) run else listOf(run.first().copy(text = " " + run.first().text.trimStart())) + run.drop(1) }
             val text = if (words.isNotEmpty()) words.joinToString("") { it.text }.trim()
             else content.replace(Regex("<[^>]+>"), "").decodeEntities().trim()
             if (text.isBlank()) continue
-            out += LyricLine(begin, text, end, words, alignEnd = agent != null && agent != "v1")
+            val lineEnd = maxOf(end, background.lastOrNull()?.endMs ?: 0L)
+            out += LyricLine(begin, text, lineEnd, words, alignEnd = agent != null && agent != "v1", background = background)
         }
         return out.withInstrumentalGaps()
     }
@@ -338,25 +357,37 @@ object LyricsPlusFormat {
             val start = line.str("time")?.toLongOrNull() ?: return@mapNotNull null
             val dur = line.str("duration")?.toLongOrNull() ?: 0L
             val singer = (line as? JsonObject)?.get("element").str("singer")
-            val words = mutableListOf<LyricWord>()
-            val current = StringBuilder()
-            var ws = 0L
-            var we = 0L
-            for (syl in (line as? JsonObject)?.get("syllabus") as? JsonArray ?: JsonArray(emptyList())) {
-                val t = syl.str("text") ?: continue
-                if (t.isBlank()) continue
-                val st = syl.str("time")?.toLongOrNull() ?: continue
-                if (current.isEmpty()) ws = st
-                current.append(t.trim())
-                we = st + (syl.str("duration")?.toLongOrNull() ?: 0L)
-                if (t.last().isWhitespace()) { words += LyricWord(ws, we, "$current "); current.setLength(0) }
-            }
-            if (current.isNotEmpty()) words += LyricWord(ws, we, current.toString())
-            val text = if (words.isNotEmpty()) words.joinToString("") { it.text }.trim() else line.str("text")?.trim().orEmpty()
+            val syllables = (line as? JsonObject)?.get("syllabus") as? JsonArray ?: JsonArray(emptyList())
+            // Background vocals ("isBackground") are their own words under the line (#66); they used to run on in it.
+            val (bgSyl, mainSyl) = syllables.partition { it.str("isBackground") == "true" }
+            val words = glue(mainSyl)
+            val background = glue(bgSyl)
+            val text = if (words.isNotEmpty()) words.joinToString("") { it.text }.trim()
+                else line.str("text")?.trim()?.takeIf { background.isEmpty() }.orEmpty()
             if (text.isBlank()) return@mapNotNull null
-            LyricLine(start, text, if (dur > 0) start + dur else start + 5000, words, alignEnd = multiVoice && singer != null && singer != "v1")
+            val end = maxOf(if (dur > 0) start + dur else start + 5000, background.lastOrNull()?.endMs ?: 0L)
+            LyricLine(start, text, end, words, alignEnd = multiVoice && singer != null && singer != "v1", background = background)
         }
         return out.withInstrumentalGaps()
+    }
+
+    /** Syllables glued back into words (a word ends where a syllable ends in a space). */
+    private fun glue(syllables: List<JsonElement>): List<LyricWord> {
+        val words = mutableListOf<LyricWord>()
+        val current = StringBuilder()
+        var ws = 0L
+        var we = 0L
+        for (syl in syllables) {
+            val t = syl.str("text") ?: continue
+            if (t.isBlank()) continue
+            val st = syl.str("time")?.toLongOrNull() ?: continue
+            if (current.isEmpty()) ws = st
+            current.append(t.trim())
+            we = st + (syl.str("duration")?.toLongOrNull() ?: 0L)
+            if (t.last().isWhitespace()) { words += LyricWord(ws, we, "$current "); current.setLength(0) }
+        }
+        if (current.isNotEmpty()) words += LyricWord(ws, we, current.toString())
+        return words
     }
 }
 
@@ -768,18 +799,20 @@ class LyricsRepository(
         }
         // If asking again fails (no network), what was saved still serves.
         val saved = if (force) null else dao.get(song.id, source.name)?.content?.takeIf { it.isNotEmpty() }
+        // The title and artist the listener gave this song's lyrics, if any (#63); saved under the song all the same.
+        val asked = searchSong(song)
         val text = try {
             when (source) {
-                LyricsSource.APPLE -> fetchApple(song)
-                LyricsSource.LYRICSPLUS -> fetchLyricsPlus(song)
-                LyricsSource.BINI -> fetchBini(song)
-                LyricsSource.QQ -> fetchQQ(song)
-                LyricsSource.LRCLIB -> fetchLrcLib(song)
-                LyricsSource.NETEASE -> fetchNetEase(song)
+                LyricsSource.APPLE -> fetchApple(asked)
+                LyricsSource.LYRICSPLUS -> fetchLyricsPlus(asked)
+                LyricsSource.BINI -> fetchBini(asked)
+                LyricsSource.QQ -> fetchQQ(asked)
+                LyricsSource.LRCLIB -> fetchLrcLib(asked)
+                LyricsSource.NETEASE -> fetchNetEase(asked)
                 LyricsSource.YTMUSIC -> fetchYtMusic(song)
-                LyricsSource.KUGOU -> fetchKuGou(song)
-                LyricsSource.UNISON -> fetchUnison(song)
-                LyricsSource.GENIUS -> fetchGenius(song)
+                LyricsSource.KUGOU -> fetchKuGou(asked)
+                LyricsSource.UNISON -> fetchUnison(asked)
+                LyricsSource.GENIUS -> fetchGenius(asked)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Never record a cancelled lookup as "no lyrics".
@@ -817,8 +850,35 @@ class LyricsRepository(
     /** Remembers which source the listener picked for a song (song id -> source name). */
     var choices: android.content.SharedPreferences? = null
 
+    /**
+     * Another title / artist to look a song's lyrics up by (#63): sources often have the lyrics under a title without
+     * "(feat. …)", or a translated one. Song id -> "title\u0001artist" ("" artist: the song's own).
+     */
+    var searchNames: android.content.SharedPreferences? = null
+
+    /** What the lyrics are looked up as, when the listener changed it: (title, artist). */
+    fun searchAs(song: Song): Pair<String, String>? =
+        searchNames?.getString(song.id, null)?.split('\u0001')?.let { it[0] to it.getOrElse(1) { "" } }
+
+    /** Sets (or, with a blank title or the song's own, clears) what [song]'s lyrics are looked up as. */
+    fun setSearchAs(song: Song, title: String, artist: String) {
+        val t = title.trim()
+        val a = artist.trim().takeIf { it != song.artistText && it != song.primaryArtist }.orEmpty()
+        searchNames?.edit()?.apply {
+            if (t.isEmpty() || (t == song.title && a.isEmpty())) remove(song.id) else putString(song.id, "$t\u0001$a")
+        }?.apply()
+    }
+
+    private fun searchSong(song: Song): Song = searchAs(song)?.let { (t, a) ->
+        song.copy(title = t, artists = if (a.isBlank()) song.artists else listOf(com.meow.music.data.model.ArtistRef(a)))
+    } ?: song
+
     fun choose(song: Song, source: LyricsSource) {
         choices?.edit()?.putString(song.id, source.name)?.apply()
+    }
+
+    fun forgetChoice(song: Song) {
+        choices?.edit()?.remove(song.id)?.apply()
     }
 
     private fun chosen(song: Song): LyricsSource? =

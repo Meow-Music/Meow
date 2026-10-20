@@ -29,14 +29,15 @@ object GeminiApi {
     )
 
     val FLASH_MODELS = listOf(
+        "gemini-3.1-flash-lite",
         "gemini-2.5-flash-lite",
         "gemini-2.0-flash-lite",
+        "gemini-2.0-flash-lite-001",
         "gemini-2.0-flash-lite-preview-02-05",
         "gemini-2.0-flash",
         "gemini-1.5-flash",
         "gemini-1.5-flash-8b",
-        "gemini-2.5-flash",
-        "gemini-3.1-flash-lite"
+        "gemini-2.5-flash"
     )
 
     @Volatile
@@ -81,6 +82,7 @@ object GeminiApi {
 
     /**
      * Translates lines of lyrics line-by-line using Gemini Flash models with auto-key/model rotation.
+     * Automatically rounds to next model/key on error or rate limit.
      * Returns null if all keys/models fail or are rate limited.
      */
     fun translateWithGemini(
@@ -135,7 +137,11 @@ object GeminiApi {
 
                 try {
                     http.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) return@use
+                        if (!response.isSuccessful) {
+                            val errCode = response.code
+                            android.util.Log.w("GeminiApi", "Model $model returned HTTP $errCode, rounding to next model/key...")
+                            return@use
+                        }
                         val responseString = response.body.string()
                         val root = Json.parseToJsonElement(responseString).jsonObject
                         val candidate = root["candidates"]?.jsonArray?.getOrNull(0)?.jsonObject
@@ -154,10 +160,12 @@ object GeminiApi {
                         if (resultLines.size == texts.size) {
                             activeModel = model
                             return resultLines
+                        } else {
+                            android.util.Log.w("GeminiApi", "Model $model line count mismatch: expected ${texts.size}, got ${resultLines.size}, rounding...")
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.w("GeminiApi", "Error with model $model: ${e.message}")
+                    android.util.Log.w("GeminiApi", "Error with model $model: ${e.message}, rounding to next...")
                 }
             }
         }

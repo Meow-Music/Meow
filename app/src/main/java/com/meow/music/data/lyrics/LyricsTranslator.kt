@@ -13,7 +13,7 @@ import okhttp3.Request
 import java.io.IOException
 
 /**
- * Lyric translations, line by line, using Gemini API with auto key/model rotation, falling back to Google Translate.
+ * Lyric translations, line by line, from Google Translate's keyless web endpoint (the one its browser extension uses).
  * Only the lyrics' text is sent, and only when the listener has turned translations on.
  */
 class LyricsTranslator(private val http: OkHttpClient) {
@@ -35,29 +35,21 @@ class LyricsTranslator(private val http: OkHttpClient) {
         val out = arrayOfNulls<String>(lines.size)
         var from: String? = null
 
-        val texts = wanted.map { it.value.trim() }
-
-        // Try Gemini API translation first
-        val geminiLines = try {
-            GeminiApi.translateWithGemini(http, texts, to)
-        } catch (_: Exception) {
-            null
+        val geminiTexts = wanted.map { it.value.trim() }
+        // Try Gemini flash-lite models with automatic round-robin rotation on error
+        val geminiTranslated = runCatching { GeminiApi.translateWithGemini(http, geminiTexts, to) }.getOrNull()
+        if (geminiTranslated != null && geminiTranslated.size == geminiTexts.size) {
+            geminiTranslated.forEachIndexed { i, t -> out[wanted[i].index] = t.trim().takeIf { it.isNotEmpty() } }
+            return@withContext Translation(null, to, out.toList()).also { synchronized(cache) { cache[key] = it } }
         }
 
-        if (geminiLines != null && geminiLines.size == texts.size) {
-            geminiLines.forEachIndexed { i, t ->
-                out[wanted[i].index] = t.trim().takeIf { it.isNotEmpty() }
-            }
-        } else {
-            // Fallback to Google Translate if Gemini fails or is rate limited
-            for (batch in batches(texts)) {
-                val (translated, detected) = request(batch.texts, to)
-                from = from ?: detected
-                if (translated.size != batch.texts.size) throw IOException("Translation came back with a different number of lines")
-                translated.forEachIndexed { i, t -> out[wanted[batch.start + i].index] = t.trim().takeIf { it.isNotEmpty() } }
-            }
+        // Fallback to Google Translate web endpoint batches if Gemini unavailable or failed
+        for (batch in batches(geminiTexts)) {
+            val (translated, detected) = request(batch.texts, to)
+            from = from ?: detected
+            if (translated.size != batch.texts.size) throw IOException("Translation came back with a different number of lines")
+            translated.forEachIndexed { i, t -> out[wanted[batch.start + i].index] = t.trim().takeIf { it.isNotEmpty() } }
         }
-
         Translation(from, to, out.toList()).also { synchronized(cache) { cache[key] = it } }
     }
 

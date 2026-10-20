@@ -61,6 +61,9 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     /** Queue indices in the order they'll actually play after the current one (follows shuffle). */
     private val _upNext = MutableStateFlow<List<Int>>(emptyList())
     val upNext: StateFlow<List<Int>> = _upNext
+    private val _played = MutableStateFlow<List<Int>>(emptyList())
+    /** Queue indices already played (before the current song in play order), oldest first. */
+    val played: StateFlow<List<Int>> = _played
     private val _repeat = MutableStateFlow(Player.REPEAT_MODE_OFF)
     val repeatMode: StateFlow<Int> = _repeat
     private val _videoMode = MutableStateFlow(false)
@@ -236,25 +239,44 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
 
     fun playQueue(songs: List<Song>, startIndex: Int = 0, source: QueueSource, shuffle: Boolean = false) {
         if (songs.isEmpty()) return
+        if (c.internetRoom.roomState.value != null && !c.internetRoom.isHost) {
+            if (c.internetRoom.canControl) {
+                c.internetRoom.playQueue(songs, startIndex)
+            }
+            return
+        }
         val token = ++playToken
-        val tapped = songs[startIndex.coerceIn(0, songs.lastIndex)]
+        val first = if (shuffle) songs.indices.random() else startIndex.coerceIn(0, songs.lastIndex)
+        val tapped = songs[first]
+        val everywhere = songsEverywhere()
         // Live streams play as they are: they have no "song version" to swap in.
-        if (shuffle || !tapped.isVideo || tapped.isLive) { startQueue(songs, startIndex, source, shuffle, null); return }
+        if ((shuffle && !everywhere) || !tapped.isVideo || tapped.isLive || tapped.isEpisode) { startQueue(songs, first, source, shuffle, null); return }
         // With the Song / Video switch off the player is audio only (#48): a music video plays as its song, or as
         // the video's sound when it has no song, never with its picture (there'd be no switch to turn it off).
-        val audioOnly = !c.settings.current.showVideoSwitch
+        // "Songs, not videos" everywhere (#80) plays it as its song too, and so does a shuffled start.
+        val audioOnly = !c.settings.current.showVideoSwitch || everywhere || shuffle
         // A music video or live performance opens as the song it's of, already showing the video
         // (the Song button then plays the track itself). With no song to match, the video plays as it is.
         if (!audioOnly) _showPlayer.tryEmit(Unit)
         scope.launch {
-            val song = videoSongs[tapped.id] ?: kotlinx.coroutines.withTimeoutOrNull(4_000) {
-                runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { c.ytm.songForVideo(tapped) } }.getOrNull()
-            }?.also { videoSongs[tapped.id] = it }
+            val song = songFor(tapped, 4_000)
             if (token != playToken) return@launch
-            val list = if (song == null) songs else songs.toMutableList().also { it[startIndex.coerceIn(0, songs.lastIndex)] = song }
-            startQueue(list, startIndex, source, false, tapped.id.takeUnless { audioOnly })
+            val list = if (song == null) songs else songs.toMutableList().also { it[first] = song }
+            startQueue(list, first, source, shuffle, tapped.id.takeUnless { audioOnly })
         }
     }
+
+    /** Settings → Playback → "Songs, not videos" → Everywhere (#80). */
+    fun songsEverywhere(): Boolean = c.settings.current.let { it.radioSongsOnly && it.songsEverywhere }
+
+    /**
+     * The song a music video is of ([YouTubeMusic.songForVideo]), remembered for the session; the video becomes the
+     * song's counterpart (its Video button). Null when there's none, or it took longer than [timeoutMs].
+     */
+    suspend fun songFor(video: Song, timeoutMs: Long = 8_000): Song? =
+        (videoSongs[video.id] ?: kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            runCatching { kotlinx.coroutines.withContext(Dispatchers.IO) { c.ytm.songForVideo(video) } }.getOrNull()
+        }?.also { videoSongs[video.id] = it })?.also { c.queue.counterparts[it.id] = video.id }
 
     private fun startQueue(songs: List<Song>, startIndex: Int, source: QueueSource, shuffle: Boolean, startVideo: String?) {
         c.queue.source.value = source
@@ -264,7 +286,7 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
         ensureStarted()
         withPlayer { p ->
             p.shuffleModeEnabled = shuffle
-            val start = if (shuffle) songs.indices.random() else startIndex.coerceIn(0, songs.lastIndex)
+            val start = startIndex.coerceIn(0, songs.lastIndex)
             p.setMediaItems(songs.mapIndexed { i, s -> s.toMediaItem(if (i == start) startVideo else null) }, start, 0)
             if (shuffle) reshuffle(p)
             p.prepare()
@@ -294,6 +316,12 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     /** Songs (one, or a whole album or playlist) straight after the current song, or played, with nothing on. */
     fun playNext(songs: List<Song>, source: QueueSource?) {
         if (songs.isEmpty()) return
+        if (c.internetRoom.roomState.value != null && !c.internetRoom.isHost) {
+            if (c.internetRoom.canControl) {
+                c.internetRoom.addSongToQueue(songs.first(), next = true)
+            }
+            return
+        }
         withPlayer { p ->
             if (p.mediaItemCount == 0) {
                 if (source == null) playSingle(songs.first()) else playQueue(songs, 0, source)
@@ -307,6 +335,12 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
      */
     fun addToQueue(songs: List<Song>, source: QueueSource?) {
         if (songs.isEmpty()) return
+        if (c.internetRoom.roomState.value != null && !c.internetRoom.isHost) {
+            if (c.internetRoom.canControl) {
+                c.internetRoom.addSongToQueue(songs.first(), next = false)
+            }
+            return
+        }
         withPlayer { p ->
             if (p.mediaItemCount == 0) {
                 if (source == null) playSingle(songs.first()) else playQueue(songs, 0, source)
@@ -367,10 +401,27 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
     }
 
     /** Takes everything after the current song out of the queue. */
-    fun clearUpcoming() = withPlayer { p ->
-        val i = p.currentMediaItemIndex
-        if (i + 1 < p.mediaItemCount) p.removeMediaItems(i + 1, p.mediaItemCount)
+    fun clearUpcoming() {
+        if (c.internetRoom.roomState.value != null && !c.internetRoom.isHost) {
+            if (c.internetRoom.canControl) {
+                c.internetRoom.clearQueue()
+            }
+            return
+        }
+        withPlayer { p ->
+            val i = p.currentMediaItemIndex
+            if (i + 1 < p.mediaItemCount) p.removeMediaItems(i + 1, p.mediaItemCount)
+            c.queue.autoplayStart.value = -1
+            c.queue.userQueued.value = emptySet()
+        }
+    }
+
+    /** Stops and empties the queue, so the mini player goes (#59: swiped down). */
+    fun stop() = withPlayer { p ->
+        p.stop()
+        p.clearMediaItems()
         c.queue.autoplayStart.value = -1
+        c.queue.autoplayContinuation = null
         c.queue.userQueued.value = emptySet()
     }
 
@@ -509,6 +560,13 @@ class PlayerConnection(private val context: Context, private val c: AppContainer
             var i = tl.getNextWindowIndex(p.currentMediaItemIndex, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
             while (i != C.INDEX_UNSET && size < tl.windowCount) { add(i); i = tl.getNextWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled) }
         }
+        // Before the current song in play order, oldest first (#68: the queue only went forward).
+        _played.value = buildList {
+            val tl = p.currentTimeline
+            if (tl.isEmpty || p.currentMediaItemIndex !in 0 until tl.windowCount) return@buildList
+            var i = tl.getPreviousWindowIndex(p.currentMediaItemIndex, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
+            while (i != C.INDEX_UNSET && size < tl.windowCount) { add(i); i = tl.getPreviousWindowIndex(i, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled) }
+        }.asReversed()
         if (song != null && (changed || song.isLive != wasLive)) checkVideo(song)
         updateLyricTiming()
     }

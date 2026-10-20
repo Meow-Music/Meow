@@ -30,11 +30,15 @@ data class CanvasArtwork(
     val album: String? = null,
 )
 
+/**
+ * Letters of every script are kept (#58: only a–z were, so a Russian title came out empty, and an empty title
+ * "matched" the community index's first clip).
+ */
 internal fun String.normalizeForMatch(): String =
     Normalizer.normalize(this, Normalizer.Form.NFD)
         .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
         .lowercase(Locale.ROOT)
-        .replace(Regex("[^a-z0-9\\s]"), " ")
+        .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
         .replace(Regex("\\s+"), " ")
         .trim()
 
@@ -111,7 +115,7 @@ class CanvasRepository(private val http: OkHttpClient) {
     }
     /** What each song's lookup found (or didn't), remembered across launches so clips start without searching again. */
     @Serializable
-    private data class Entry(val art: CanvasArtwork? = null, val hadAlbum: Boolean = false, val at: Long = 0, val album: String? = null)
+    private data class Entry(val art: CanvasArtwork? = null, val hadAlbum: Boolean = false, val at: Long = 0, val album: String? = null, val v: Int = 0)
 
     private val cache = object : LinkedHashMap<String, Entry>(64, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>) =
@@ -172,12 +176,20 @@ class CanvasRepository(private val http: OkHttpClient) {
         " ",
     ).substringBefore(" | ").replace(Regex("\\s+"), " ").trim().ifBlank { this }
 
-    fun cached(song: Song): CanvasArtwork? = synchronized(cache) { cache[song.id]?.art }
+    /**
+     * A lookup made before non-Latin titles and artists could be matched ([MATCHING]), for a song with one: the old rules
+     * reduced its title or artist to nothing, which "matched" other songs' clips (#58). It's asked again, saved or not.
+     */
+    private fun Entry.suspect(song: Song) = v < MATCHING && (latinless(song.title) || latinless(song.primaryArtist))
+    private fun latinless(s: String) = !Regex("[a-z0-9]").containsMatchIn(Normalizer.normalize(s, Normalizer.Form.NFD).lowercase(Locale.ROOT))
+    private fun entry(song: Song): Entry? = cache[song.id]?.takeIf { !it.suspect(song) }
+
+    fun cached(song: Song): CanvasArtwork? = synchronized(cache) { entry(song)?.art }
 
     suspend fun canvasFor(song: Song): CanvasArtwork? {
         val now = System.currentTimeMillis()
         synchronized(cache) {
-            cache[song.id]?.let { e ->
+            entry(song)?.let { e ->
                 val fresh = isSaved(song) || !e.stale(now)
                 if (fresh && (e.art != null || e.hadAlbum || song.album == null)) return e.art
             }
@@ -205,11 +217,11 @@ class CanvasRepository(private val http: OkHttpClient) {
         }
         synchronized(cache) {
             // Offline or a source hiccup: keep the clip we already knew rather than forgetting it.
-            val known = cache[song.id]?.art
-            if (found != null || known == null) cache[song.id] = Entry(found, album != null, now, albumKey(song))
+            val known = entry(song)?.art
+            if (found != null || known == null) cache[song.id] = Entry(found, album != null, now, albumKey(song), MATCHING)
         }
         scheduleWrite()
-        return found ?: synchronized(cache) { cache[song.id]?.art }
+        return found ?: synchronized(cache) { entry(song)?.art }
     }
 
     companion object {
@@ -218,6 +230,8 @@ class CanvasRepository(private val http: OkHttpClient) {
 
         private const val MAX_ENTRIES = 3000
         private const val DAY = 86_400_000L
+        /** The matching rules' version a lookup was made with: 1 = non-Latin letters kept ([normalizeForMatch], #58). */
+        private const val MATCHING = 1
     }
 
     // ------------------------------------------------------------ Apple Music
@@ -309,6 +323,7 @@ class CanvasRepository(private val http: OkHttpClient) {
         val results = parse(get(url)).f("results") as? JsonArray ?: return null
         val wanted = splitArtists(artist)
         val wantAlbum = album.normalizeForMatch()
+        if (wanted.isEmpty() || wantAlbum.isBlank()) return null
         val hit = results.firstOrNull { r ->
             val credited = splitArtists(r.str("artistName") ?: "")
             val name = (r.str("collectionName") ?: "").normalizeForMatch()
@@ -362,11 +377,15 @@ class CanvasRepository(private val http: OkHttpClient) {
         val t = title.normalizeForMatch()
         val a = artist.normalizeForMatch()
         val al = album?.normalizeForMatch()
+        if (t.isBlank() || a.isBlank()) return null
+        val wanted = splitArtists(artist)
         return manifest.firstOrNull { e ->
             val s = e.title!!.normalizeForMatch()
-            val c = e.artist!!.normalizeForMatch()
             val l = e.album?.normalizeForMatch().orEmpty()
-            s.isNotBlank() && (t.contains(s) || s.contains(t)) && c.isNotBlank() && (a.contains(c) || c.contains(a)) &&
+            // The same title (give or take a trailing "(Remastered)"-style word run) by the same artist: substrings
+            // matched any song whose title held another's ("Love" in "Love Is Lonely").
+            s.isNotBlank() && (s == t || t.startsWith("$s ") || s.startsWith("$t ")) &&
+                splitArtists(e.artist!!).let { credited -> wanted.isNotEmpty() && wanted.any { w -> credited.any { it == w } } } &&
                 (l.isBlank() || al.isNullOrBlank() || l == al)
         }
     }

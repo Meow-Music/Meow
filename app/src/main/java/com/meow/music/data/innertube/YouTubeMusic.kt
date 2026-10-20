@@ -1,6 +1,7 @@
 package com.meow.music.data.innertube
 
 import com.meow.music.data.model.AccountInfo
+import com.meow.music.data.model.ArtistItem
 import com.meow.music.data.model.ArtistPage
 import com.meow.music.data.model.BrowseItem
 import com.meow.music.data.model.CollectionKind
@@ -38,7 +39,11 @@ enum class SearchFilter(val label: String, val params: String?) {
 }
 
 /** High-level YouTube Music operations built on [InnerTube]. */
-class YouTubeMusic(private val api: InnerTube) {
+class YouTubeMusic(private val api: InnerTube, private val songsEverywhere: () -> Boolean = { false }) {
+    companion object {
+        /** An artist page "id" that's looked up by name ([artistIdByName]). */
+        const val ARTIST_BY_NAME = "name:"
+    }
 
     private suspend fun browse(browseId: String, params: String? = null): JsonObject {
         val body = buildJsonObject {
@@ -86,8 +91,21 @@ class YouTubeMusic(private val api: InnerTube) {
 
     suspend fun moodsAndGenres(): List<Shelf> = Parser.shelves(browse("FEmusic_moods_and_genres"))
 
-    suspend fun browseShelves(browseId: String, params: String? = null): List<Shelf> =
-        Parser.shelves(browse(browseId, params))
+    suspend fun browseShelves(browseId: String, params: String? = null): List<Shelf> {
+        val res = browse(browseId, params)
+        val shelves = Parser.shelves(res)
+        // A list of songs on its own (an artist's "From your library" opened whole, #69) comes a page at a time.
+        val only = shelves.singleOrNull()?.takeIf { s -> s.items.isNotEmpty() && s.items.all { it is SongItem } } ?: return shelves
+        var token = Parser.continuation(res.findFirst("musicShelfRenderer") ?: res.findFirst("musicPlaylistShelfRenderer"))
+        val items = only.items.toMutableList()
+        while (token != null && items.size < 2000) {
+            val chunk = runCatching { playlistPage(token!!) }.getOrNull() ?: break
+            if (chunk.songs.isEmpty()) break
+            items += chunk.songs.map(::SongItem)
+            token = chunk.next
+        }
+        return listOf(only.copy(items = items.distinctBy { it.id }))
+    }
 
     // ---------------------------------------------------------------- Search
 
@@ -181,8 +199,9 @@ class YouTubeMusic(private val api: InnerTube) {
         val songs = songsFrom(res).map { s ->
             s.copy(
                 // An album's tracks are its songs. Signed out, YouTube now lists the label's "Official Audio" /
-                // "Lyric Video" uploads here, typed as music videos, and they opened in video mode.
-                isVideo = false,
+                // "Lyric Video" uploads here, typed as music videos, and they opened in video mode. With "Songs, not
+                // videos" everywhere they stay videos, so they're swapped for the song itself (#61).
+                isVideo = s.isVideo && songsEverywhere(),
                 artists = s.artists.ifEmpty { artists },
                 album = s.album ?: albumRef,
                 thumbnail = s.thumbnail ?: thumb,
@@ -289,7 +308,25 @@ class YouTubeMusic(private val api: InnerTube) {
         return first.copy(songs = songs.distinctBy { it.id }, continuation = null)
     }
 
+    /**
+     * An artist's page id from their name, for artists a song names without a link (#78: "In the City" by Charly García,
+     * Sting only links García). Only an exact name match counts.
+     */
+    suspend fun artistIdByName(name: String): String? {
+        val want = SearchRank.norm(name)
+        if (want.isBlank()) return null
+        artistIds[want]?.let { return it }
+        val items = search(name, SearchFilter.ARTISTS).items.filterIsInstance<ArtistItem>()
+        return items.firstOrNull { SearchRank.norm(it.title) == want }?.id?.also { artistIds[want] = it }
+    }
+    private val artistIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** [browseId] can be [ARTIST_BY_NAME] + a name, for an artist a song names without a link. */
     suspend fun artist(browseId: String): ArtistPage {
+        if (browseId.startsWith(ARTIST_BY_NAME)) {
+            val name = browseId.removePrefix(ARTIST_BY_NAME)
+            return artist(artistIdByName(name) ?: throw java.io.IOException("Couldn't find $name on YouTube Music"))
+        }
         val res = browse(browseId)
         val header = res.findFirst("musicImmersiveHeaderRenderer") ?: res.findFirst("musicVisualHeaderRenderer")
             ?: res.findFirst("musicResponsiveHeaderRenderer")
@@ -405,18 +442,36 @@ class YouTubeMusic(private val api: InnerTube) {
         next(song.id).counterparts[song.id]?.let { return it }
         fun norm(s: String) = s.lowercase().replace(Regex("\\(.*?\\)|\\[.*?]"), "").replace(Regex("[^\\p{L}\\p{N}]"), "")
         val title = norm(song.title)
-        val artist = norm(song.primaryArtist)
-        if (title.isBlank()) return null
+        val artists = song.artists.map { norm(it.name) }.filter { it.isNotBlank() }
+        if (title.isBlank() || artists.isEmpty()) return null
         val videos = search("${song.title} ${song.primaryArtist}", SearchFilter.VIDEOS).items
             .filterIsInstance<SongItem>().map { it.song }
+        val songWords = song.title.lowercase()
         return videos.firstOrNull { v ->
             val vt = norm(v.title)
-            val artistOk = artist.isBlank() || vt.contains(artist) ||
-                v.artists.any { a -> norm(a.name).let { it.isNotBlank() && (it.contains(artist) || artist.contains(it)) } }
+            val words = v.title.lowercase()
+            // Posted by the artist (their channel, or its VEVO / "Official" one), not by whoever names them in a title:
+            // a guitar cover and a fan's lyric video both said "Nirvana" / "Billie Eilish" in theirs (#60).
+            val byArtist = v.artists.any { a -> officialChannel(norm(a.name)).let { ch -> ch.isNotBlank() && ch in artists } }
             val durationOk = song.durationSec == 0 || v.durationSec == 0 || kotlin.math.abs(v.durationSec - song.durationSec) < 150
-            vt.contains(title) && artistOk && durationOk && !vt.contains("lyric") && !vt.contains("cover") && !vt.contains("live")
+            // Other takes on the song, unless the song itself is one ("… (Live)", "… (Acoustic)").
+            val otherTake = NOT_THE_VIDEO.any { it.containsMatchIn(words) && !it.containsMatchIn(songWords) }
+            vt.contains(title) && byArtist && durationOk && !otherTake
         }?.id
     }
+
+    /** "NirvanaVEVO", "Charly García Oficial", "Official Billie Eilish" → the artist's own name, normalized. */
+    private fun officialChannel(name: String): String {
+        var n = name
+        for (s in listOf("vevo", "official", "oficial", "officiel", "offiziell", "ufficiale", "music", "tv", "channel")) n = n.removeSuffix(s)
+        return n.removePrefix("official").ifBlank { name }
+    }
+
+    private val NOT_THE_VIDEO = listOf(
+        "lyric", "lyrics", "letra", "letras", "paroles", "testo", "traducida", "traducción", "sub español", "subtitulad", "перевод", "текст",
+        "cover", "karaoke", "instrumental", "acoustic", "acústic", "unplugged", "live", "en vivo", "ao vivo", "concert", "remix",
+        "reaction", "tutorial", "lesson", "guitar", "piano", "drum", "bass", "slowed", "sped up", "nightcore", "8d", "fan made", "fanmade",
+    ).map { Regex("(?<![\\p{L}\\p{N}])${Regex.escape(it)}(?![\\p{L}\\p{N}])") }
 
     suspend fun lyrics(browseId: String): String? {
         val res = browse(browseId)
@@ -698,8 +753,24 @@ class YouTubeMusic(private val api: InnerTube) {
         })
     }
 
-    /** Takes one song out of an owned playlist; [setVideoId] says which copy (a playlist can hold a song twice). */
+    /**
+     * Takes one song out of an owned playlist; [setVideoId] says which copy (a playlist can hold a song twice).
+     * YouTube answers "Precondition check failed" (#87) when that slot is out of date (the playlist changed since the
+     * page was loaded, elsewhere or on another device): then the playlist's current slots are read and it's asked
+     * again with the song's slot now, or it's done if the song isn't in the playlist any more.
+     */
     suspend fun removeFromPlaylist(playlistId: String, videoId: String, setVideoId: String) {
+        try {
+            removeSlot(playlistId, videoId, setVideoId)
+        } catch (e: InnerTubeException) {
+            if (e.code != 400) throw e
+            val fresh = runCatching { playlistSlots(playlistId)[videoId] }.getOrElse { throw e } ?: return
+            if (fresh == setVideoId) throw e
+            removeSlot(playlistId, videoId, fresh)
+        }
+    }
+
+    private suspend fun removeSlot(playlistId: String, videoId: String, setVideoId: String) {
         api.post("browse/edit_playlist", buildJsonObject {
             put("playlistId", playlistId.removePrefix("VL"))
             putJsonArray("actions") {

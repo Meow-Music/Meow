@@ -39,13 +39,22 @@ class ArtworkStore(
 
     fun has(url: String?): Boolean = keyOf(url)?.let { it in saved } == true
 
+    /** Saved at about [size] px or more (a video's thumbnail, at most 480 px wide, counts as soon as it's saved). */
+    fun hasFull(url: String?, size: Int = 1080): Boolean {
+        val key = keyOf(url)?.takeIf { it in saved } ?: return false
+        return url!!.contains("ytimg.com/vi") || widthOf(key) >= size * 3 / 4
+    }
+
     /** Saves the cover at [url] (asked for at [size] px), unless it's already here. True once it's on the phone. */
     suspend fun save(url: String?, size: Int = 1080): Boolean {
         val key = keyOf(url) ?: return false
-        if (key in saved) return true
+        // A downloaded song from a library album shares its cover, which was kept at the library's 544 px: the player
+        // showed that one stretched (#86). A bigger ask fetches it again at the bigger size.
+        fun enough() = hasFull(url, size)
+        if (enough()) return true
         return gate.withPermit {
             quiet()
-            if (key in saved) return@withPermit true
+            if (enough()) return@withPermit true
             withContext(Dispatchers.IO) {
                 runCatching {
                     http.newCall(Request.Builder().url(hiRes(url, size) ?: url!!).build()).execute().use { res ->
@@ -64,7 +73,17 @@ class ArtworkStore(
         return write(key, bytes)
     }
 
+    private val widths = ConcurrentHashMap<String, Int>()
+
+    /** A saved cover's width in pixels (read from its header once). */
+    private fun widthOf(key: String): Int = widths.getOrPut(key) {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(File(dir, "$key.jpg").path, o)
+        o.outWidth.coerceAtLeast(0)
+    }
+
     private fun write(key: String, bytes: ByteArray): Boolean {
+        widths.remove(key)
         // Its own temporary name: two saves of the same cover (an album's songs finishing together) can overlap.
         val tmp = File(dir, "$key.${System.nanoTime()}.${Thread.currentThread().id}.tmp")
         tmp.writeBytes(bytes)

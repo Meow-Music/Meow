@@ -36,6 +36,18 @@ class DiscordPresence(
   private var lastIsPlaying: Boolean = false
   private var currentAuthSession: DiscordAuthorizationSession? = null
 
+  private var activityType: DiscordActivityType = DiscordActivityType.Listening
+  private var onlineStatus: DiscordOnlineStatus = DiscordOnlineStatus.Online
+  private var showTimestamps: Boolean = true
+  private var showButtons: Boolean = true
+
+  fun updateSettings(s: com.meow.music.data.prefs.AppSettings) {
+    activityType = DiscordActivityType.fromPreference(s.discordActivityType)
+    onlineStatus = DiscordOnlineStatus.fromPreference(s.discordOnlineStatus)
+    showTimestamps = s.discordShowTimestamps
+    showButtons = s.discordShowButtons
+  }
+
   init {
     // Observe stored username and token state from DataStore
     scope.launch(Dispatchers.IO) {
@@ -87,6 +99,8 @@ class DiscordPresence(
     }
   }
 
+  fun signIn(token: String, onResult: ((Boolean) -> Unit)? = null) = signInWithToken(token, onResult)
+
   fun setEnabled(on: Boolean) {
     if (on == enabled) return
     enabled = on
@@ -95,7 +109,7 @@ class DiscordPresence(
     } else if (!on) {
       lastSongKey = null
       scope.launch(Dispatchers.IO) {
-        DiscordSocialPresenceClient.close()
+        MeowDiscordClient.close()
         _state.value = State.OFF
       }
     }
@@ -110,7 +124,7 @@ class DiscordPresence(
         scope.launch(Dispatchers.IO) {
           val token = DiscordOAuthRepository.getValidAccessToken(context)
           if (!token.isNullOrBlank()) {
-            DiscordSocialPresenceClient.clearPresence(token)
+            MeowDiscordClient.clearPresence(token)
           }
         }
       }
@@ -131,32 +145,47 @@ class DiscordPresence(
 
       _state.value = State.CONNECTING
       val now = System.currentTimeMillis()
-      val startMs = now - positionMs.coerceAtLeast(0)
-      val endMs = if (!song.isLive && durationMs > 0) startMs + durationMs else null
+      val startMs = if (showTimestamps) now - positionMs.coerceAtLeast(0) else null
+      val endMs = if (showTimestamps && !song.isLive && durationMs > 0) (startMs ?: now) + durationMs else null
 
       val primaryArtist = song.primaryArtist.ifBlank { song.artists.joinToString(", ") { it.name } }
-      val activity = DiscordPresenceActivity(
+      val buttons = if (showButtons) {
+        listOf(
+          MeowDiscordButton("Listen on Meow", "https://github.com/Meow-Music/Meow"),
+        )
+      } else {
+        emptyList()
+      }
+
+      val activity = MeowDiscordActivity(
         applicationId = DiscordOAuthRepository.applicationId,
         name = "Meow",
-        type = DiscordActivityType.Listening,
+        type = activityType.nativeValue,
         details = song.title.take(128),
         state = ("by $primaryArtist").take(128).ifBlank { "Meow" },
-        assets = DiscordPresenceAssets(
-          largeImage = song.thumbnail,
+        assets = MeowDiscordAssets(
+          largeImage = formatDiscordImage(song.thumbnail),
           largeText = song.title,
           smallImage = null,
           smallText = "Meow Music",
         ),
-        timestamps = DiscordPresenceTimestamps(
+        timestamps = MeowDiscordTimestamps(
           startMs = startMs,
           endMs = endMs,
         ),
+        buttons = buttons,
+        onlineStatus = when (onlineStatus) {
+          DiscordOnlineStatus.Idle -> "idle"
+          DiscordOnlineStatus.Dnd -> "dnd"
+          else -> "online"
+        },
       )
 
-      val res = DiscordSocialPresenceClient.updatePresence(token, activity)
+      val res = MeowDiscordClient.updatePresence(token, activity)
       if (res.isSuccess) {
         _state.value = State.CONNECTED
       } else {
+        _state.value = State.OFF
         Log.w("DiscordPresence", "Failed to update Discord presence", res.exceptionOrNull())
       }
     }
@@ -166,13 +195,24 @@ class DiscordPresence(
     scope.launch(Dispatchers.IO) {
       val token = DiscordOAuthRepository.getValidAccessToken(context)
       if (!token.isNullOrBlank()) {
-        DiscordSocialPresenceClient.clearPresence(token)
+        MeowDiscordClient.clearPresence(token)
       }
-      DiscordSocialPresenceClient.close()
+      MeowDiscordClient.close()
       DiscordOAuthRepository.clearSession(context)
       _state.value = State.SIGNED_OUT
       _userName.value = null
       _signedIn.value = false
+    }
+  }
+
+  private fun formatDiscordImage(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    return if (url.startsWith("https://")) {
+      "mp:external/https/" + url.removePrefix("https://")
+    } else if (url.startsWith("http://")) {
+      "mp:external/http/" + url.removePrefix("http://")
+    } else {
+      url
     }
   }
 }

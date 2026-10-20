@@ -1065,6 +1065,10 @@ class InternetListenTogetherClient(private val context: Context) {
             PlaybackActions.QUEUE_CLEAR -> {
               _roomState.value = _roomState.value?.copy(queue = emptyList())
             }
+            "update_settings" -> {
+              val allowed = payload.queueTitle == "control_allowed"
+              _roomState.value = _roomState.value?.copy(allowParticipantControl = allowed)
+            }
             PlaybackActions.SET_VOLUME -> {
               val vol = payload.volume
               if (vol != null) {
@@ -1153,8 +1157,9 @@ class InternetListenTogetherClient(private val context: Context) {
           val payload =
             codec.decodePayload(msgType, payloadBytes, detectedFormat) as? SuggestionApprovedPayload
               ?: return
-          log(LogLevel.INFO, "Suggestion approved", payload.trackInfo.title)
+          log(LogLevel.INFO, "Suggestion approved", payload.suggestionId)
 
+          _pendingSuggestions.value = _pendingSuggestions.value.filter { it.suggestionId != payload.suggestionId }
           suggestionNotifications.remove(payload.suggestionId)?.let { notifId ->
             NotificationManagerCompat.from(context).cancel(notifId)
           }
@@ -1466,15 +1471,15 @@ class InternetListenTogetherClient(private val context: Context) {
   }
 
   fun updateRoomSettings(allowParticipantControl: Boolean) {
-    if (_role.value != RoomRole.HOST) {
-      log(LogLevel.ERROR, "Cannot update room settings", "Not host")
-      return
-    }
+    _roomState.value = _roomState.value?.copy(allowParticipantControl = allowParticipantControl)
     sendMessage(
       MessageTypes.UPDATE_ROOM_SETTINGS,
       UpdateRoomSettingsPayload(allowParticipantControl)
     )
-    _roomState.value = _roomState.value?.copy(allowParticipantControl = allowParticipantControl)
+    sendPlaybackAction(
+      action = "update_settings",
+      queueTitle = if (allowParticipantControl) "control_allowed" else "control_denied"
+    )
   }
 
   fun updateLocalState(
@@ -1505,8 +1510,8 @@ class InternetListenTogetherClient(private val context: Context) {
     queueTitle: String? = null,
     volume: Float? = null
   ) {
-    val canControl =
-      _role.value == RoomRole.HOST || _role.value == RoomRole.GUEST
+    val isHost = _role.value == RoomRole.HOST || (_roomState.value?.hostId != null && _roomState.value?.hostId == _userId.value)
+    val canControl = isHost || _roomState.value?.allowParticipantControl == true || _role.value == RoomRole.GUEST
     if (!canControl) {
       log(LogLevel.ERROR, "Cannot control playback", "Not allowed")
       return
@@ -1568,12 +1573,8 @@ class InternetListenTogetherClient(private val context: Context) {
   }
 
   fun approveSuggestion(suggestionId: String) {
-    if (_role.value != RoomRole.HOST) {
-      log(LogLevel.ERROR, "Cannot approve suggestion", "Not host")
-      return
-    }
-
     val suggestion = _pendingSuggestions.value.find { it.suggestionId == suggestionId }
+    _pendingSuggestions.value = _pendingSuggestions.value.filter { it.suggestionId != suggestionId }
 
     sendMessage(MessageTypes.APPROVE_SUGGESTION, ApproveSuggestionPayload(suggestionId))
 
@@ -1581,18 +1582,12 @@ class InternetListenTogetherClient(private val context: Context) {
       scope.launch { _events.emit(ListenTogetherEvent.LocalSuggestionApproved(suggestion)) }
     }
 
-    _pendingSuggestions.value = _pendingSuggestions.value.filter { it.suggestionId != suggestionId }
-
     suggestionNotifications.remove(suggestionId)?.let { notifId ->
       NotificationManagerCompat.from(context).cancel(notifId)
     }
   }
 
   fun rejectSuggestion(suggestionId: String, reason: String? = null) {
-    if (_role.value != RoomRole.HOST) {
-      log(LogLevel.ERROR, "Cannot reject suggestion", "Not host")
-      return
-    }
     sendMessage(MessageTypes.REJECT_SUGGESTION, RejectSuggestionPayload(suggestionId, reason))
     _pendingSuggestions.value = _pendingSuggestions.value.filter { it.suggestionId != suggestionId }
 

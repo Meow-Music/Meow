@@ -750,6 +750,7 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
     private fun prefetchNext() {
         val i = player.nextMediaItemIndex
         if (i == C.INDEX_UNSET) return
+        songForNextVideo(player.getMediaItemAt(i))
         val next = player.getMediaItemAt(i).mediaId.takeIf { it.isNotBlank() } ?: return
         warmedNext = next
         // The next few queued songs' loudness (for normalization) and edges (for Crossfade), ready well before they
@@ -780,6 +781,34 @@ class PlaybackService : MediaLibraryService(), Player.Listener {
             }
         }
         armNextVideo()
+    }
+
+    /** Music videos whose song is being looked up for [songForNextVideo]. */
+    private val findingSongs = HashSet<String>()
+
+    /**
+     * "Songs, not videos" everywhere (#80): a music video coming up next (a liked video, an album or playlist's video
+     * track) is swapped for its song before it plays, the song's title, album and cover with it; the video stays the
+     * Video button's. One lined up as its video on purpose (Keep playing videos) is left alone, and so is one with no
+     * song. Offline, a downloaded video keeps its own sound unless its song is on the phone too. (The replaced item
+     * changes the timeline, so [prefetchNext] then gets the song ready.)
+     */
+    private fun songForNextVideo(item: MediaItem) {
+        if (!c.player.songsEverywhere() || item.videoModeId != null) return
+        val video = item.toSong()?.takeIf { it.isVideo && !it.isLive && !it.isEpisode && !it.isLocal } ?: return
+        if (!findingSongs.add(video.id)) return
+        scope.launch {
+            try {
+                val song = c.player.songFor(video) ?: return@launch
+                if (!c.network.online.value && !c.availableOffline(song.id)) return@launch
+                val at = (0 until player.mediaItemCount).firstOrNull {
+                    it != player.currentMediaItemIndex && player.getMediaItemAt(it).let { m -> m.mediaId == video.id && m.videoModeId == null }
+                } ?: return@launch
+                player.replaceMediaItem(at, song.toMediaItem())
+            } finally {
+                findingSongs.remove(video.id)
+            }
+        }
     }
 
     /**

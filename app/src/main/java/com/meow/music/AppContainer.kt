@@ -100,7 +100,7 @@ class AppContainer(val app: Application) {
         .build()
 
     val innerTube = InnerTube(http, { settings.current }, settings::setVisitorData)
-    val ytm = YouTubeMusic(innerTube)
+    val ytm = YouTubeMusic(innerTube) { settings.current.let { it.radioSongsOnly && it.songsEverywhere } }
     val db = MeowDatabase.build(app)
     val streams by lazy { StreamResolver(app, http, settings, innerTube) }
     val translator = com.meow.music.data.lyrics.LyricsTranslator(http)
@@ -111,6 +111,7 @@ class AppContainer(val app: Application) {
     val offline = com.meow.music.data.OfflineLibrary(app)
     val lyrics = LyricsRepository(http, db.lyrics(), ytm) { settings.current }.apply {
         choices = app.getSharedPreferences("lyrics_choice", android.content.Context.MODE_PRIVATE)
+        searchNames = app.getSharedPreferences("lyrics_search_as", android.content.Context.MODE_PRIVATE)
     }
     val meta = MetaRepository(http, db.meta())
     val canvas = com.meow.music.data.canvas.CanvasRepository(http).apply {
@@ -232,19 +233,27 @@ class AppContainer(val app: Application) {
     }
 
     /** "Listening to Meow" on the listener's Discord profile, when they've turned it on (Settings → Discord). */
-    val discord = com.meow.music.discord.DiscordPresence(app, scope)
+    val discord = com.meow.music.playback.DiscordPresence(app, http, scope)
     init {
         scope.launch {
-            settings.flow.collect { s -> discord.setEnabled(s.discordPresence && discord.signedIn) }
+            settings.flow.collect { s ->
+                discord.setEnabled(s.discordPresence && discord.signedIn)
+                discord.updateSettings(s)
+            }
         }
     }
 
     /** Listen Together sessions on the local network. */
     val together by lazy { com.meow.music.playback.together.Together(app, this) }
 
-    /** Internet Listen Together sessions. */
-    val internetClient by lazy { com.meow.music.data.internetroom.InternetListenTogetherClient(app) }
-    val internetRoom by lazy { com.meow.music.data.internetroom.InternetListenTogetherManager(internetClient, app, this).apply { setPlayerConnection(player) } }
+    val internetClient by lazy {
+        val client = com.meow.music.data.internetroom.InternetListenTogetherClient(app)
+        com.meow.music.data.internetroom.InternetListenTogetherClient.setInstance(client)
+        client
+    }
+    val internetRoom by lazy {
+        com.meow.music.data.internetroom.InternetListenTogetherManager(internetClient, app, this)
+    }
 
     /** Data saver is on and the phone is on mobile data (#40): smaller pictures, no artist photos or animated covers. */
     fun dataSaving(): Boolean = settings.current.dataSaver && network.metered.value

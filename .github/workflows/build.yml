@@ -14,10 +14,10 @@ on:
         type: boolean
         default: false
       tag_name:
-        description: 'Tag name for the release (e.g. v1.2.3)'
+        description: 'Tag name for the release (e.g. v1.2.5)'
         required: false
         type: string
-        default: 'v1.2.3'
+        default: 'v1.2.5'
 
 permissions:
   contents: write

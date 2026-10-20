@@ -1,3 +1,4 @@
+
 .gradle/
 .kotlin/
 build/
@@ -15,3 +16,6 @@ keystore.properties
 CLAUDE.md
 AI CODING.MD
 REXX.jks
+.artifacts/
+/.artifacts/
+

@@ -169,6 +169,7 @@ class InternetListenTogetherManager(
     }
 
     fun control(action: String, positionMs: Long? = null) {
+        if (!canControl) return
         val pc = playerConnection
         if (client.connectionState.value != ConnectionState.CONNECTED) {
             client.connect()
@@ -184,16 +185,62 @@ class InternetListenTogetherManager(
         client.sendPlaybackAction(mappedAction, position = positionMs ?: pc?.position)
     }
 
-    fun suggestTrack(song: Song, next: Boolean = false) {
-        val trackInfo = song.toTrackInfo()
-        if (roomState.value?.allowParticipantControl == true) {
-            client.sendPlaybackAction(
-                action = PlaybackActions.QUEUE_ADD,
-                trackInfo = trackInfo,
-                insertNext = next
-            )
-        } else {
-            client.suggestTrack(trackInfo)
+    val isHost: Boolean
+        get() = role.value == RoomRole.HOST || (roomState.value?.hostId != null && roomState.value?.hostId == client.userId.value)
+
+    val canControl: Boolean
+        get() = isHost || roomState.value?.allowParticipantControl == true
+
+    fun addSongToQueue(song: Song, next: Boolean = false) {
+        if (roomState.value != null) {
+            if (canControl) {
+                client.sendPlaybackAction(
+                    action = PlaybackActions.QUEUE_ADD,
+                    trackInfo = song.toTrackInfo(),
+                    insertNext = next
+                )
+            } else {
+                client.suggestTrack(song.toTrackInfo())
+            }
+        }
+    }
+
+    fun playSong(song: Song) {
+        if (roomState.value != null) {
+            if (canControl) {
+                client.sendPlaybackAction(
+                    action = PlaybackActions.CHANGE_TRACK,
+                    trackId = song.id,
+                    position = 0L,
+                    trackInfo = song.toTrackInfo()
+                )
+            } else {
+                client.suggestTrack(song.toTrackInfo())
+            }
+        }
+    }
+
+    fun playQueue(songs: List<Song>, startIndex: Int = 0) {
+        if (roomState.value != null) {
+            if (canControl && songs.isNotEmpty()) {
+                val target = songs.getOrNull(startIndex) ?: songs.first()
+                val q = songs.filter { it.id != target.id }.map { it.toTrackInfo() }
+                client.sendPlaybackAction(
+                    action = PlaybackActions.CHANGE_TRACK,
+                    trackId = target.id,
+                    position = 0L,
+                    trackInfo = target.toTrackInfo(),
+                    queue = q
+                )
+            }
+        }
+    }
+
+    fun clearQueue() {
+        if (roomState.value != null) {
+            if (canControl) {
+                client.sendPlaybackAction(action = PlaybackActions.QUEUE_CLEAR)
+            }
         }
     }
 

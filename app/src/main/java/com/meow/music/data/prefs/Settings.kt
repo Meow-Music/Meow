@@ -153,29 +153,23 @@ object HomeSections {
     const val TILES_TITLE = "Shortcut tiles"
 
     val defaults = listOf(
-        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(DOWNLOADS, "Downloads", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(RECENT, "Recently played", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(LIKED, "Liked songs", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}from the community", "From the community", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}fresh finds, old favorites", "Fresh finds, old favorites", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}mixed for you", "Mixed for you", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(QUICK_PICKS, "Quick picks", style = SectionStyle.CAROUSEL),
+        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.HERO),
+        HomeSectionConfig(QUICK_PICKS, "Quick picks", style = SectionStyle.LIST),
+        HomeSectionConfig(RECENT, "Recently played"),
         HomeSectionConfig(REPLAY, "Replay teaser", style = SectionStyle.HERO),
         HomeSectionConfig(GENRES, "Your top genres", style = SectionStyle.GRID),
         HomeSectionConfig(MOODS, "Moods & genres", style = SectionStyle.GRID),
+        HomeSectionConfig(LIKED, "Liked songs"),
+        HomeSectionConfig(DOWNLOADS, "Downloads", visible = false),
         HomeSectionConfig(SPEED_DIAL, "Speed dial", style = SectionStyle.GRID),
     )
 
     /** What a fresh install's Home shows (and what Reset goes back to). */
     val initial = listOf(
-        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(DOWNLOADS, "Downloads", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(RECENT, "Recently played", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig(LIKED, "Liked songs", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}from the community", "From the community", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}fresh finds, old favorites", "Fresh finds, old favorites", style = SectionStyle.CAROUSEL),
-        HomeSectionConfig("${YT_PREFIX}mixed for you", "Mixed for you", style = SectionStyle.CAROUSEL),
+        HomeSectionConfig(REPLAY, "Replay teaser", style = SectionStyle.HERO),
+        HomeSectionConfig(GREETING, TILES_TITLE, style = SectionStyle.HERO),
+        HomeSectionConfig(QUICK_PICKS, "Quick picks", style = SectionStyle.LIST),
+        HomeSectionConfig("${YT_PREFIX}mixed for you", "Mixed for you"),
     )
 }
 
@@ -195,30 +189,33 @@ data class AppSettings(
     val authUser: Int = 0,
     /** Discord shows what's playing (Settings → Discord). Off until the listener signs in to Discord there. */
     val discordPresence: Boolean = false,
-    val showDiscord: Boolean = false,
+    val discordActivityType: String = "Listening",
+    val discordOnlineStatus: String = "online",
+    val discordShowTimestamps: Boolean = true,
+    val discordShowButtons: Boolean = true,
+    val showDiscord: Boolean = true,
     val accountName: String = "",
     val accountEmail: String = "",
     val accountAvatar: String = "",
     // Appearance
-    val themeMode: ThemeMode = ThemeMode.LIGHT,
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val pureBlack: Boolean = false,
     val colorSource: ColorSource = ColorSource.CUSTOM,
     val accent: Int = 0xFF3A86FF.toInt(),
     val liquidGlass: Boolean = false,
-    val internetRoomUsername: String = "",
     val glassKind: GlassKind = GlassKind.REGULAR,
     /** Blurred, non-refractive glass. Mutually exclusive with Liquid Glass. */
-    val frostedGlass: Boolean = true,
+    val frostedGlass: Boolean = false,
     /** Taps and swipes on player controls give a little buzz. */
     val haptics: Boolean = true,
     /** Artwork runs edge to edge at the top of the player, dissolving into the backdrop. */
-    val fullBleedArtwork: Boolean = false,
+    val fullBleedArtwork: Boolean = true,
     /** Immersive mode (the player's ⋯ menu): the cover fills the screen, lyrics play over it, everything else hides. */
     val immersivePlayer: Boolean = false,
     val immersiveArt: ImmersiveArt = ImmersiveArt.ZOOMED,
     val immersiveLyrics: ImmersiveLyrics = ImmersiveLyrics.LOW,
     /** Shuffle and repeat buttons either side of the player's transport, always (not only with the queue up). */
-    val playerShuffleRepeat: Boolean = true,
+    val playerShuffleRepeat: Boolean = false,
     /** How much of what's queued is loaded ahead while a song plays ([Preload]). */
     val preload: Preload = Preload.START,
     /** Songs are loaded ahead ([preload]: a start or whole songs) on mobile data too (else only on Wi-Fi). */
@@ -243,13 +240,13 @@ data class AppSettings(
     val preferSynced: Boolean = true,
     /** Pass over sources whose lyrics star out swear words when another has them in full. */
     val skipCensored: Boolean = true,
-    /** A translation under each lyric line (machine translation, asked of Google Translate), when the song isn't in it. */
-    val lyricsTranslate: Boolean = false,
+    /** A translation under each lyric line (powered by Gemini API), when the song isn't in it. */
+    val lyricsTranslate: Boolean = true,
     /** Language code to translate lyrics into; blank means the phone's language. */
-    val lyricsTranslateTo: String = "en",
+    val lyricsTranslateTo: String = "",
     val lyricsScale: Float = 1f,
     /** Lyrics on Android Auto's player (the car's Lyrics button flips this too). */
-    val carLyrics: Boolean = false,
+    val carLyrics: Boolean = true,
     val carLyricsStyle: CarLyricsStyle = CarLyricsStyle.TEXT,
     /** Also on the phone's own media controls (notification, lock screen) when not in the car. */
     val carLyricsOnPhone: Boolean = false,
@@ -275,6 +272,17 @@ data class AppSettings(
     val autoplay: Boolean = true,
     /** Autoplay and radios play songs: music videos swap for their song, and videos with no song version are left out (#39). */
     val radioSongsOnly: Boolean = true,
+    /**
+     * "Songs, not videos" everywhere (#80): with [radioSongsOnly], a music video in any queue (search, albums, playlists,
+     * Liked songs, downloads) plays as its song, the video kept for the Video button; without a song it plays as it is.
+     */
+    val songsEverywhere: Boolean = false,
+    /** The player's right-hand time shows the song's length instead of the time left (#82; tapping it switches). */
+    val showTrackLength: Boolean = false,
+    /** Search opens with the keyboard up (#71). */
+    val searchKeyboard: Boolean = false,
+    /** Double-tapping the left or right of the player's cover seeks back / ahead this many seconds (#79); 0 = off. */
+    val doubleTapSeekSeconds: Int = 10,
     /** Swiping Meow away from Recents stops the music (#45); off, it keeps playing in the background. */
     val stopOnSwipeAway: Boolean = false,
     /**
@@ -283,21 +291,21 @@ data class AppSettings(
      */
     val dataSaver: Boolean = false,
     /** With a music video showing, the next song plays as its video too (until switched back to the song). */
-    val videoContinues: Boolean = false,
+    val videoContinues: Boolean = true,
     /** Lossless playback: always the best stream, hi-res output, and the lossless add-on when it's on. */
     val lossless: Boolean = true,
     /** The lossless add-on: play matching FLAC/WAV/AIFF files on the phone instead of the stream. */
     val losslessLocal: Boolean = false,
     val normalize: Boolean = true,
-    val skipSilence: Boolean = true,
+    val skipSilence: Boolean = false,
     /** Crossfade: songs fade into each other when one runs into the next (after Spotify's), instead of stopping and starting. */
-    val mix: Boolean = true,
+    val mix: Boolean = false,
     /** How long a crossfade lasts, in seconds, when it isn't [mixAuto]. */
     val mixSeconds: Int = 6,
     /** Crossfade works out the best length for each pair of songs, from how one ends and the next begins. */
     val mixAuto: Boolean = true,
     /** DJ-style: lines up the songs' beats and plays the incoming song at the outgoing one's tempo during the crossfade. */
-    val mixBeatMatch: Boolean = true,
+    val mixBeatMatch: Boolean = false,
     /** Tempo analysis (a 1–4 MB download per song) may use mobile data, not only Wi-Fi. */
     val mixTempoOnCellular: Boolean = false,
     val videoMaxHeight: Int = 1080,
@@ -305,7 +313,7 @@ data class AppSettings(
      * The country YouTube Music is asked as (ISO code, e.g. "US"); blank follows the phone. Where YouTube Music
      * isn't offered, asking as a country where it is brings Home, charts and search back.
      */
-    val contentCountry: String = "NP",
+    val contentCountry: String = "",
     // Storage & downloads
     val cacheSizeMb: Int = 4096,
     val downloadWifiOnly: Boolean = true,
@@ -328,7 +336,7 @@ data class AppSettings(
     val spatialAmount: Float = 0.75f,
     // Home
     val homeLayout: List<HomeSectionConfig> = HomeSections.initial,
-    val autoAddSections: Boolean = false,
+    val autoAddSections: Boolean = true,
     /** Replay shows listening time as hours and minutes (20h 4m) instead of minutes (1,204 min). */
     val replayHours: Boolean = true,
     /** Home's headline; blank means good morning / afternoon / evening. */
@@ -339,13 +347,13 @@ data class AppSettings(
     val homeRecentTiles: Int = 3,
     /** Playlists shown as tiles after the shortcuts. */
     val homePlaylists: List<PinnedPlaylist> = emptyList(),
-    val homeCustomizeButton: Boolean = false,
+    val homeCustomizeButton: Boolean = true,
     /** Tapping a song in Quick picks starts a radio from it (as on YouTube Music), instead of playing Quick picks in order (#38). */
     val quickPicksRadio: Boolean = true,
     /** The round Customize button at the top of Home (beside Podcasts); separate from the one at the bottom. */
-    val homeCustomizeTopButton: Boolean = false,
+    val homeCustomizeTopButton: Boolean = true,
     /** The Podcasts button at the top of Home. Off, Podcasts opens from a Library tile instead (#28). */
-    val homePodcastsButton: Boolean = false,
+    val homePodcastsButton: Boolean = true,
     // Interface
     val fontChoice: FontChoice = FontChoice.CONDENSED,
     /** The imported app font's name, and when it (or the lyrics font) was last imported, so the UI picks it up. */
@@ -355,16 +363,16 @@ data class AppSettings(
     val lyricsFont: String = "",
     val lyricsFontName: String = "",
     val textScale: Float = 1f,
-    val corners: Corners = Corners.EXTRA,
-    val uiDensity: UiDensity = UiDensity.ROOMY,
+    val corners: Corners = Corners.ROUND,
+    val uiDensity: UiDensity = UiDensity.COMFORTABLE,
     val titleSize: TitleSize = TitleSize.LARGE,
     val cardSize: CardSize = CardSize.MEDIUM,
     val reduceMotion: Boolean = false,
     // Navigation
-    val navStyle: NavBarStyle = NavBarStyle.FLOATING,
+    val navStyle: NavBarStyle = NavBarStyle.DOCKED,
     val navLabels: NavLabels = NavLabels.ALWAYS,
     val navHideOnScroll: Boolean = true,
-    val navTabs: List<NavTab> = listOf(NavTab.HOME, NavTab.LIBRARY, NavTab.SEARCH, NavTab.SETTINGS),
+    val navTabs: List<NavTab> = listOf(NavTab.HOME, NavTab.LIBRARY, NavTab.SEARCH, NavTab.REPLAY),
     /** Local files' sections, shown in this order. */
     val localSections: List<LocalSection> = LocalSection.entries.toList(),
     /** Local files → Songs' order (a name from the page's sort list). */
@@ -372,9 +380,9 @@ data class AppSettings(
     val startTab: NavTab = NavTab.HOME,
     val miniPlayerStyle: MiniPlayerStyle = MiniPlayerStyle.CARD,
     val miniSkipButtons: Boolean = true,
-    val miniProgress: MiniProgress = MiniProgress.FILL,
+    val miniProgress: MiniProgress = MiniProgress.LINE,
     // Player look
-    val playerBackground: PlayerBackground = PlayerBackground.THEME,
+    val playerBackground: PlayerBackground = PlayerBackground.MESH,
     /** 0..1: how much of the player's background shows through its darkening (blurred cover and your background). */
     val playerBackdropShow: Float = 0.35f,
     val playerArtCorners: Int = 8,
@@ -409,7 +417,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val dataSyncId = stringPreferencesKey("data_sync_id")
         val authUser = intPreferencesKey("auth_user")
         val discordPresence = booleanPreferencesKey("discord_presence")
-        val showDiscord = booleanPreferencesKey("show_discord")
+        val discordActivityType = stringPreferencesKey("discord_activity_type")
+        val discordOnlineStatus = stringPreferencesKey("discord_online_status")
+        val discordShowTimestamps = booleanPreferencesKey("discord_show_timestamps")
+        val discordShowButtons = booleanPreferencesKey("discord_show_buttons")
         val accountName = stringPreferencesKey("account_name")
         val accountEmail = stringPreferencesKey("account_email")
         val accountAvatar = stringPreferencesKey("account_avatar")
@@ -460,6 +471,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
         val cellularQuality = stringPreferencesKey("cellular_quality")
         val autoplay = booleanPreferencesKey("autoplay")
         val radioSongsOnly = booleanPreferencesKey("radio_songs_only")
+        val songsEverywhere = booleanPreferencesKey("songs_everywhere")
+        val showTrackLength = booleanPreferencesKey("show_track_length")
+        val searchKeyboard = booleanPreferencesKey("search_keyboard")
+        val doubleTapSeekSeconds = intPreferencesKey("double_tap_seek_seconds")
         val stopOnSwipeAway = booleanPreferencesKey("stop_on_swipe_away")
         val dataSaver = booleanPreferencesKey("data_saver")
         val videoContinues = booleanPreferencesKey("video_continues")
@@ -553,7 +568,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             dataSyncId = p[K.dataSyncId] ?: "",
             authUser = p[K.authUser] ?: 0,
             discordPresence = p[K.discordPresence] ?: d.discordPresence,
-            showDiscord = p[K.showDiscord] ?: d.showDiscord,
+            discordActivityType = p[K.discordActivityType] ?: d.discordActivityType,
+            discordOnlineStatus = p[K.discordOnlineStatus] ?: d.discordOnlineStatus,
+            discordShowTimestamps = p[K.discordShowTimestamps] ?: d.discordShowTimestamps,
+            discordShowButtons = p[K.discordShowButtons] ?: d.discordShowButtons,
             accountName = p[K.accountName] ?: "",
             accountEmail = p[K.accountEmail] ?: "",
             accountAvatar = p[K.accountAvatar] ?: "",
@@ -611,6 +629,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
             cellularQuality = p.enum(K.cellularQuality, d.cellularQuality),
             autoplay = p[K.autoplay] ?: d.autoplay,
             radioSongsOnly = p[K.radioSongsOnly] ?: d.radioSongsOnly,
+            songsEverywhere = p[K.songsEverywhere] ?: d.songsEverywhere,
+            showTrackLength = p[K.showTrackLength] ?: d.showTrackLength,
+            searchKeyboard = p[K.searchKeyboard] ?: d.searchKeyboard,
+            doubleTapSeekSeconds = p[K.doubleTapSeekSeconds] ?: d.doubleTapSeekSeconds,
             stopOnSwipeAway = p[K.stopOnSwipeAway] ?: d.stopOnSwipeAway,
             dataSaver = p[K.dataSaver] ?: d.dataSaver,
             videoContinues = p[K.videoContinues] ?: d.videoContinues,
@@ -734,7 +756,11 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
 
     fun setVisitorData(v: String) = edit { it[K.visitorData] = v }
     fun setDiscordPresence(v: Boolean) = edit { it[K.discordPresence] = v }
-    fun setShowDiscord(v: Boolean) = edit { it[K.showDiscord] = v }
+    fun setDiscordActivityType(v: String) = edit { it[K.discordActivityType] = v }
+    fun setDiscordOnlineStatus(v: String) = edit { it[K.discordOnlineStatus] = v }
+    fun setDiscordShowTimestamps(v: Boolean) = edit { it[K.discordShowTimestamps] = v }
+    fun setDiscordShowButtons(v: Boolean) = edit { it[K.discordShowButtons] = v }
+    fun setShowDiscord(v: Boolean) {}
 
     fun logout() = edit {
         it.remove(K.cookie); it.remove(K.dataSyncId); it.remove(K.authUser)
@@ -788,6 +814,10 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setCellularQuality(v: AudioQuality) = edit { it[K.cellularQuality] = v.name }
     fun setAutoplay(v: Boolean) = edit { it[K.autoplay] = v }
     fun setRadioSongsOnly(v: Boolean) = edit { it[K.radioSongsOnly] = v }
+    fun setSongsEverywhere(v: Boolean) = edit { it[K.songsEverywhere] = v }
+    fun setShowTrackLength(v: Boolean) = edit { it[K.showTrackLength] = v }
+    fun setSearchKeyboard(v: Boolean) = edit { it[K.searchKeyboard] = v }
+    fun setDoubleTapSeekSeconds(v: Int) = edit { it[K.doubleTapSeekSeconds] = v }
     fun setStopOnSwipeAway(v: Boolean) = edit { it[K.stopOnSwipeAway] = v }
     fun setDataSaver(v: Boolean) = edit { it[K.dataSaver] = v }
     fun setVideoContinues(v: Boolean) = edit { it[K.videoContinues] = v }
@@ -859,7 +889,6 @@ class SettingsRepository(private val context: Context, scope: CoroutineScope) {
     fun setPlaylistHeroCover(v: Boolean) = edit { it[K.playlistHeroCover] = v }
     fun setFrostedPages(v: Boolean) = edit { it[K.frostedPages] = v }
     fun setReplayThemeColors(v: Boolean) = edit { it[K.replayThemeColors] = v }
-    fun setInternetRoomUsername(name: String) = edit { it[stringPreferencesKey("internet_room_username")] = name }
 
     /** Puts every look & layout option back to how Meow ships (colours and backgrounds are left alone). */
     @Suppress("UNCHECKED_CAST")
